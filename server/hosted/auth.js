@@ -76,12 +76,13 @@ export function joinRoom(room, { joinToken, displayName }, { now = Date.now() } 
  * Express middleware factories. Both resolve the room from the route parameter
  * first, so a valid token for room A cannot reach room B's data.
  */
-export function requireHost(store) {
+export function requireHost(store, { rateLimiter } = {}) {
   return (request, _response, next) => {
     try {
       const room = store.require(request.params.roomId);
       request.room = room;
       request.actor = authenticateHost(room, bearerToken(request));
+      if (rateLimiter) rateLimiter.consume(room.hostToken);
       store.touch(room.roomId);
       next();
     } catch (error) {
@@ -90,12 +91,12 @@ export function requireHost(store) {
   };
 }
 
-export function requireController(store, { rateLimiter } = {}) {
+export function requireController(store, { rateLimiter, now = () => Date.now() } = {}) {
   return (request, _response, next) => {
     try {
       const room = store.require(request.params.roomId);
       request.room = room;
-      const actor = authenticateController(room, bearerToken(request));
+      const actor = authenticateController(room, bearerToken(request), { now: now() });
       if (rateLimiter) rateLimiter.consume(actor.token);
       request.actor = actor;
       store.touch(room.roomId);
@@ -107,19 +108,25 @@ export function requireController(store, { rateLimiter } = {}) {
 }
 
 /** Accepts either role — for reads both host and controllers are allowed. */
-export function requireMember(store, { rateLimiter } = {}) {
+export function requireMember(
+  store,
+  { rateLimiter, hostRateLimiter, now = () => Date.now() } = {}
+) {
   return (request, _response, next) => {
     try {
       const room = store.require(request.params.roomId);
       const token = bearerToken(request);
       request.room = room;
       let actor;
+      let isHost = false;
       try {
         actor = authenticateHost(room, token);
+        isHost = true;
       } catch {
-        actor = authenticateController(room, token);
-        if (rateLimiter) rateLimiter.consume(actor.token);
+        actor = authenticateController(room, token, { now: now() });
       }
+      if (isHost && hostRateLimiter) hostRateLimiter.consume(room.hostToken);
+      if (!isHost && rateLimiter) rateLimiter.consume(actor.token);
       request.actor = actor;
       store.touch(room.roomId);
       next();

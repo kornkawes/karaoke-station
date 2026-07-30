@@ -1,6 +1,6 @@
 # ADR 0001 — Hosting platform สำหรับ KaraokeStation Hosted Web App
 
-- สถานะ: **PROPOSED** — รอ Nut อนุมัติ provider และค่าใช้จ่าย
+- สถานะ: **ACCEPTED FOR PRIVATE PREVIEW** — Nut สั่ง deploy ต่อจาก hosted handoff
 - วันที่: 2026-07-29
 - บริบท: `CLAUDE_HANDOFF_HOSTED_WEB.md` เปลี่ยนทิศทางจาก Windows installer เป็นเว็บออนไลน์
   ที่โน้ตบุ๊ก Windows 7 เปิดผ่าน browser ได้ทันที
@@ -65,7 +65,7 @@
 
 ## Decision
 
-**เสนอ Render free tier สำหรับ MVP → ย้ายไป Fly.io ถ้า Nut ยอมจ่ายรายเดือน**
+**เลือก Render free tier สำหรับ private preview → ประเมิน paid/shared store ก่อนใช้จริงจัง**
 
 เหตุผล:
 
@@ -101,12 +101,12 @@
   — ต้องทดสอบจริงบนเครื่อง Nut ก่อนถือว่าจบ
 - ยังไม่ได้ทดสอบ provider จริงเลย เพราะ credential blocker ยังไม่ปลด
 
-## ยังต้องรอ Nut
+## เงื่อนไขก่อน deploy
 
-1. ยอมรับ Render free tier (มี cold start) หรือจ่าย Fly.io/Render always-on
-2. คิวต้องรอด backend restart หรือห้องชั่วคราวพอ
-3. ใช้ domain เองหรือ URL ของ provider
-4. ยืนยัน revoke/rotate YouTube API key เดิม (**blocker — deploy ไม่ได้จนกว่าจะเสร็จ**)
+1. ยืนยันรับข้อจำกัด preview: cold start และห้อง/คิวหายเมื่อ process restart
+2. ใช้ URL ของ Render ในรอบแรก; custom domain อยู่นอกขอบเขต preview
+3. ยืนยัน revoke/rotate YouTube API key เดิม (**blocker — deploy ไม่ได้จนกว่าจะเสร็จ**)
+4. Cara QA และ Vera security gate ต้องผ่านบน commit เดียวกับที่จะ deploy
 
 ## Sources
 

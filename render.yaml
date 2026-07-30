@@ -9,12 +9,13 @@ services:
     runtime: node
     plan: free
     region: singapore
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci && npm test -- --maxWorkers=1 && npm run build
     startCommand: npm start
     healthCheckPath: /api/v1/health
+    autoDeployTrigger: checksPass
     envVars:
       - key: NODE_VERSION
-        value: "22"
+        value: "22.23.2"
       # sync:false means Render prompts for this in the dashboard and stores it as a
       # secret. The key must never be written into this file or committed anywhere.
       - key: YOUTUBE_API_KEY

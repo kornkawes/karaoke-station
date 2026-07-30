@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Local-first karaoke PWA using the official YouTube embedded player.",
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=22.23.2 <23"
   },
   "scripts": {
     "dev": "concurrently -k -n server,web -c cyan,magenta \"node --watch server/index.js\" \"vite --host 127.0.0.1\"",

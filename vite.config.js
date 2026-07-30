@@ -30,7 +30,7 @@ function configureLoopbackProxy(proxy) {
   proxy.on("proxyReqWs", rewriteSafeDevOrigin);
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   // Chrome 109 is the last version that runs on Windows 7/8.1, so it is the floor
   // for the hosted lane. Anything newer would ship syntax the target cannot parse.
   build: {
@@ -42,7 +42,7 @@ export default defineConfig({
   },
   plugins: [
     react(),
-    VitePWA({
+    ...(mode === "locallane" ? [VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["icons/karaoke-station.svg", "icons/karaoke-station-256.png", "icons/karaoke-station-512.png"],
       manifest: {
@@ -88,7 +88,7 @@ export default defineConfig({
           }
         ]
       }
-    })
+    })] : [])
   ],
   server: {
     host: "127.0.0.1",
@@ -106,4 +106,4 @@ export default defineConfig({
       }
     }
   }
-});
+}));

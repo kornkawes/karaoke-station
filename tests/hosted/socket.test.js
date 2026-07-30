@@ -48,12 +48,13 @@ async function api(method, routePath, { token, body } = {}) {
   return { status: response.status, ...payload };
 }
 
-function connect(auth) {
+function connect(auth, options = {}) {
   return ioClient(baseUrl, {
     auth,
     transports: ["websocket"],
     reconnection: false,
-    forceNew: true
+    forceNew: true,
+    ...options
   });
 }
 
@@ -79,6 +80,25 @@ function connectResult(auth) {
       clearTimeout(timer);
       socket.close();
       reject(Object.assign(new Error(error.message), { code: error.data?.code }));
+    });
+  });
+}
+
+function connectResultWithOptions(auth, options) {
+  return new Promise((resolve, reject) => {
+    const socket = connect(auth, options);
+    const timer = setTimeout(() => {
+      socket.close();
+      reject(new Error("timeout"));
+    }, 5_000);
+    socket.on("connect", () => {
+      clearTimeout(timer);
+      resolve(socket);
+    });
+    socket.on("connect_error", (error) => {
+      clearTimeout(timer);
+      socket.close();
+      reject(error);
     });
   });
 }
@@ -140,6 +160,20 @@ afterAll(async () => {
 });
 
 describe("socket authentication", () => {
+  it.each(["websocket", "polling"])(
+    "rejects a disallowed Origin over %s",
+    async (transport) => {
+      const room = await createRoom();
+      await expect(connectResultWithOptions(
+        { roomId: room.roomId, token: room.hostToken },
+        {
+          transports: [transport],
+          extraHeaders: { Origin: "https://evil.example" }
+        }
+      )).rejects.toBeDefined();
+    }
+  );
+
   it("accepts a host token for its own room", async () => {
     const room = await createRoom();
     const socket = await connectResult({ roomId: room.roomId, token: room.hostToken });

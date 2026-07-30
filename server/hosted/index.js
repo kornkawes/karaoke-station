@@ -6,6 +6,7 @@ import { Server as SocketServer } from "socket.io";
 import { createHostedApplication } from "./app.js";
 import { authenticateController, authenticateHost } from "./auth.js";
 import { socketHandshakeSchema } from "./schemas.js";
+import { createSocketAdmission, socketSecurityConfig } from "./socket-security.js";
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(serverDir, "..", "..");
@@ -22,9 +23,17 @@ const runtime = await createHostedApplication({
 });
 
 const server = createServer(runtime.app);
-const io = new SocketServer(server, {
+const securityConfig = socketSecurityConfig(process.env);
+let io;
+const allowRequest = createSocketAdmission({
+  allowedOrigins: runtime.allowedOrigins,
+  config: securityConfig,
+  activeConnections: () => io?.engine?.clientsCount ?? 0
+});
+io = new SocketServer(server, {
   serveClient: false,
   cors: false,
+  allowRequest,
   maxHttpBufferSize: 32 * 1024,
   transports: ["websocket", "polling"],
   pingInterval: 25_000,

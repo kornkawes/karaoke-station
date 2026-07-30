@@ -39,8 +39,11 @@ import {
   revisionSchema,
   roomIdSchema
 } from "./schemas.js";
+import { trustedProxyHops } from "./config.js";
 
 const VERSION = "0.2.0";
+export const MAX_LYRICS_PER_ROOM = 100;
+export const MAX_LYRICS_BYTES_PER_ROOM = 1_000_000;
 
 function data(response, value, status = 200) {
   return response.status(status).json({ data: value });
@@ -128,11 +131,18 @@ export async function createHostedApplication({
   const events = new EventEmitter();
   const app = express();
   const actionLimiter = new TokenRateLimiter({ limit: 30, windowMs: 60_000, now });
+  const hostLimiter = new TokenRateLimiter({ limit: 120, windowMs: 60_000, now });
+  const hostAuth = requireHost(store, { rateLimiter: hostLimiter });
+  const memberAuth = requireMember(store, {
+    rateLimiter: actionLimiter,
+    hostRateLimiter: hostLimiter,
+    now
+  });
 
   app.disable("x-powered-by");
   // Never trust proxy headers by default: X-Forwarded-For would otherwise let a
   // client forge its own source IP and defeat every IP-based rate limit below.
-  app.set("trust proxy", env.TRUSTED_PROXY ? Number(env.TRUSTED_PROXY) : false);
+  app.set("trust proxy", trustedProxyHops(env.TRUSTED_PROXY) || false);
   app.use(helmet({
     crossOriginEmbedderPolicy: false,
     contentSecurityPolicy: {
@@ -261,6 +271,7 @@ export async function createHostedApplication({
     data(response, {
       status: "ok",
       version: VERSION,
+      searchConfigured: Boolean(apiKey),
       uptimeSeconds: Math.floor(process.uptime()),
       timestamp: new Date(now()).toISOString()
     });
@@ -284,18 +295,18 @@ export async function createHostedApplication({
     }
   });
 
-  app.get("/api/v1/rooms/:roomId", requireHost(store), (request, response) => {
+  app.get("/api/v1/rooms/:roomId", hostAuth, (request, response) => {
     data(response, hostRoomView(request.room, { joinPath: joinPathFor(request.room) }));
   });
 
-  app.delete("/api/v1/rooms/:roomId", requireHost(store), (request, response) => {
+  app.delete("/api/v1/rooms/:roomId", hostAuth, (request, response) => {
     const roomId = request.room.roomId;
     store.close(roomId);
     events.emit("room:closed", { roomId });
     data(response, { roomId, closed: true });
   });
 
-  app.post("/api/v1/rooms/:roomId/rotate", requireHost(store), (request, response) => {
+  app.post("/api/v1/rooms/:roomId/rotate", hostAuth, (request, response) => {
     const room = store.rotate(request.room.roomId);
     events.emit("room:rotated", { roomId: room.roomId });
     data(response, {
@@ -307,7 +318,7 @@ export async function createHostedApplication({
     });
   });
 
-  app.patch("/api/v1/rooms/:roomId/settings", requireHost(store), asyncRoute(async (request, response) => {
+  app.patch("/api/v1/rooms/:roomId/settings", hostAuth, asyncRoute(async (request, response) => {
     const patch = settingsPatchSchema.parse(request.body);
     const mutation = await store.mutate(request.room.roomId, (draft) => {
       Object.assign(draft.settings, patch);
@@ -337,7 +348,7 @@ export async function createHostedApplication({
 
   app.get(
     "/api/v1/rooms/:roomId/queue",
-    requireMember(store, { rateLimiter: actionLimiter }),
+    memberAuth,
     (request, response) => {
       data(response, roomView(request.room));
     }
@@ -347,7 +358,7 @@ export async function createHostedApplication({
 
   app.get(
     "/api/v1/rooms/:roomId/search",
-    requireMember(store, { rateLimiter: actionLimiter }),
+    memberAuth,
     searchLimiter,
     asyncRoute(async (request, response) => {
       requireApiKey();
@@ -362,7 +373,7 @@ export async function createHostedApplication({
 
   app.post(
     "/api/v1/rooms/:roomId/youtube/parse",
-    requireMember(store, { rateLimiter: actionLimiter }),
+    memberAuth,
     (request, response, next) => {
       try {
         data(response, parseYouTubeInput(request.body?.input));
@@ -376,7 +387,7 @@ export async function createHostedApplication({
 
   app.post(
     "/api/v1/rooms/:roomId/queue",
-    requireMember(store, { rateLimiter: actionLimiter }),
+    memberAuth,
     asyncRoute(async (request, response) => {
       const input = queueAddSchema.parse(request.body);
       const actorName = request.actor.role === "host" ? "Host" : request.actor.displayName;
@@ -402,7 +413,7 @@ export async function createHostedApplication({
 
   app.delete(
     "/api/v1/rooms/:roomId/queue/:itemId",
-    requireMember(store, { rateLimiter: actionLimiter }),
+    memberAuth,
     asyncRoute(async (request, response) => {
       const input = revisionSchema.parse(request.body ?? {});
       const mutation = await store.mutate(request.room.roomId, (draft) => {
@@ -427,7 +438,7 @@ export async function createHostedApplication({
 
   app.patch(
     "/api/v1/rooms/:roomId/queue/reorder",
-    requireMember(store, { rateLimiter: actionLimiter }),
+    memberAuth,
     asyncRoute(async (request, response) => {
       const input = reorderSchema.parse(request.body);
       if (input.revision === undefined) {
@@ -454,7 +465,7 @@ export async function createHostedApplication({
 
   app.post(
     "/api/v1/rooms/:roomId/queue/skip",
-    requireMember(store, { rateLimiter: actionLimiter }),
+    memberAuth,
     asyncRoute(async (request, response) => {
       const input = revisionSchema.parse(request.body ?? {});
       const mutation = await store.mutate(request.room.roomId, (draft) => {
@@ -481,7 +492,7 @@ export async function createHostedApplication({
 
   app.post(
     "/api/v1/rooms/:roomId/queue/play-now",
-    requireMember(store, { rateLimiter: actionLimiter }),
+    memberAuth,
     asyncRoute(async (request, response) => {
       const input = playNowSchema.parse(request.body);
       const mutation = await store.mutate(request.room.roomId, (draft) => {
@@ -507,7 +518,7 @@ export async function createHostedApplication({
 
   app.post(
     "/api/v1/rooms/:roomId/queue/advance",
-    requireHost(store),
+    hostAuth,
     asyncRoute(async (request, response) => {
       const input = revisionSchema.parse(request.body ?? {});
       const mutation = await store.mutate(request.room.roomId, (draft) => {
@@ -527,7 +538,7 @@ export async function createHostedApplication({
 
   app.post(
     "/api/v1/rooms/:roomId/queue/current/failure",
-    requireHost(store),
+    hostAuth,
     asyncRoute(async (request, response) => {
       const input = queueFailureSchema.parse(request.body);
       const mutation = await store.mutate(request.room.roomId, (draft) => advanceQueue(draft, {
@@ -545,7 +556,7 @@ export async function createHostedApplication({
 
   // ---- Lyrics (host only: display-side feature) -----------------------------
 
-  app.get("/api/v1/rooms/:roomId/lyrics/:videoId", requireHost(store), (request, response, next) => {
+  app.get("/api/v1/rooms/:roomId/lyrics/:videoId", hostAuth, (request, response, next) => {
     try {
       const videoId = youtubeIdSchema.parse(request.params.videoId);
       data(response, {
@@ -557,11 +568,27 @@ export async function createHostedApplication({
     }
   });
 
-  app.put("/api/v1/rooms/:roomId/lyrics/:videoId", requireHost(store), asyncRoute(async (request, response) => {
+  app.put("/api/v1/rooms/:roomId/lyrics/:videoId", hostAuth, asyncRoute(async (request, response) => {
     const lyric = lyricSchema.parse({ ...request.body, videoId: request.params.videoId });
     const mutation = await store.mutate(request.room.roomId, (draft) => {
       const item = { ...lyric, updatedAt: new Date(now()).toISOString() };
       const index = draft.lyrics.findIndex((entry) => entry.videoId === lyric.videoId);
+      if (index < 0 && draft.lyrics.length >= MAX_LYRICS_PER_ROOM) {
+        throw new AppError(413, "lyrics_capacity", "เนื้อเพลงในห้องนี้เต็มแล้ว");
+      }
+      const currentBytes = draft.lyrics.reduce(
+        (total, entry) => total + Buffer.byteLength(entry.content, "utf8"),
+        0
+      );
+      const replacedBytes = index >= 0
+        ? Buffer.byteLength(draft.lyrics[index].content, "utf8")
+        : 0;
+      if (
+        currentBytes - replacedBytes + Buffer.byteLength(item.content, "utf8")
+        > MAX_LYRICS_BYTES_PER_ROOM
+      ) {
+        throw new AppError(413, "lyrics_capacity", "เนื้อเพลงในห้องนี้ใช้พื้นที่เต็มแล้ว");
+      }
       if (index >= 0) draft.lyrics[index] = item;
       else draft.lyrics.push(item);
       return item;
@@ -569,7 +596,7 @@ export async function createHostedApplication({
     data(response, { revision: mutation.state.revision, item: mutation.result });
   }));
 
-  app.get("/api/v1/rooms/:roomId/lyrics-search", requireHost(store), asyncRoute(async (request, response) => {
+  app.get("/api/v1/rooms/:roomId/lyrics-search", hostAuth, asyncRoute(async (request, response) => {
     if (!request.room.state.settings.lrclibEnabled) {
       throw new AppError(403, "lrclib_disabled", "ต้องเปิด LRCLIB ก่อนใช้งาน");
     }

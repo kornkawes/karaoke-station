@@ -393,6 +393,12 @@ describe("queue semantics", () => {
 });
 
 describe("secret non-disclosure", () => {
+  it("reports search readiness without exposing configuration details", async () => {
+    const response = await api("get", "/api/v1/health").expect(200);
+    expect(response.body.data.searchConfigured).toBe(true);
+    expect(JSON.stringify(response.body)).not.toContain("very-secret-key");
+  });
+
   it("never returns the API key from any room route", async () => {
     const room = await createRoom();
     const controller = await joinRoom(room);
@@ -499,6 +505,15 @@ describe("transport hardening", () => {
   it("does not trust proxy headers for the client address", () => {
     expect(runtime.app.get("trust proxy")).toBe(false);
   });
+
+  it("rejects an unsafe proxy-hop configuration instead of trusting arbitrary headers", async () => {
+    const unsafe = await createHostedApplication({
+      env: { ALLOWED_ORIGINS: ORIGIN, TRUSTED_PROXY: "999" },
+      distDir: path.join(process.cwd(), "missing-dist"),
+      fetchImpl: vi.fn()
+    });
+    expect(unsafe.app.get("trust proxy")).toBe(false);
+  });
 });
 
 describe("origin allowlist parsing", () => {
@@ -537,6 +552,22 @@ describe("rate limiting", () => {
     expect(limited).toBe(true);
   });
 
+  it("limits host actions per token", async () => {
+    const room = await createRoom();
+
+    let limited = false;
+    for (let attempt = 0; attempt < 130; attempt += 1) {
+      const response = await api("get", `/api/v1/rooms/${room.roomId}/queue`)
+        .set("Authorization", `Bearer ${room.hostToken}`);
+      if (response.status === 429) {
+        expect(response.body.error.code).toBe("rate_limited");
+        limited = true;
+        break;
+      }
+    }
+    expect(limited).toBe(true);
+  });
+
   it("caps the number of controllers in a room", async () => {
     const room = await createRoom();
     for (let index = 0; index < 50; index += 1) {
@@ -548,5 +579,34 @@ describe("rate limiting", () => {
       .send({ joinToken: room.joinToken, displayName: "overflow" })
       .expect(429);
     expect(response.body.error.code).toBe("controller_limit");
+  });
+});
+
+describe("lyrics capacity", () => {
+  function saveLyric(room, videoId, content) {
+    return api("put", `/api/v1/rooms/${room.roomId}/lyrics/${videoId}`)
+      .set("Authorization", `Bearer ${room.hostToken}`)
+      .send({ kind: "plain", content, source: "manual" });
+  }
+
+  it("caps the number of lyrics records retained by a room", async () => {
+    const room = await createRoom();
+    for (let index = 0; index < 100; index += 1) {
+      await saveLyric(room, String(index).padStart(11, "0"), "test").expect(200);
+    }
+    const response = await saveLyric(room, "99999999999", "overflow").expect(413);
+    expect(response.body.error.code).toBe("lyrics_capacity");
+  });
+
+  it("caps aggregate UTF-8 lyric content while allowing replacement", async () => {
+    const room = await createRoom();
+    const chunk = "ก".repeat(20_000); // 60,000 UTF-8 bytes
+    for (let index = 0; index < 16; index += 1) {
+      await saveLyric(room, String(index).padStart(11, "0"), chunk).expect(200);
+    }
+    const response = await saveLyric(room, "99999999999", chunk).expect(413);
+    expect(response.body.error.code).toBe("lyrics_capacity");
+
+    await saveLyric(room, "00000000000", "replacement").expect(200);
   });
 });
