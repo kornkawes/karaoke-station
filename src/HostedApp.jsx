@@ -51,7 +51,7 @@ function Toast({ message, onClose }) {
   );
 }
 
-function HostedPlayer({ track, onEnded, onError, volume = 75 }) {
+function HostedPlayer({ track, onEnded, onError, onExitFullscreen, isFullscreen, containerRef, volume = 75 }) {
   const rootRef = useRef(null);
   const playerRef = useRef(null);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
@@ -138,7 +138,7 @@ function HostedPlayer({ track, onEnded, onError, volume = 75 }) {
   };
 
   return (
-    <div className="hosted-video">
+    <div className="hosted-video" ref={containerRef}>
       {/* Stable container React owns; YouTube only ever touches its children. */}
       <div className="hosted-video-mount" ref={rootRef} aria-label={track ? `YouTube ${track.title}` : undefined} />
       {!track && <Empty title="รอเพลงแรก" detail="สแกน QR ด้วยมือถือเพื่อค้นหาและเพิ่มเพลง" />}
@@ -146,6 +146,12 @@ function HostedPlayer({ track, onEnded, onError, volume = 75 }) {
         <button className="hosted-autoplay-unlock" onClick={resumeWithSound}>
           <Volume2 size={22} />
           <span><strong>แตะเพื่อเปิดเสียง</strong>เบราว์เซอร์หยุดการเล่นอัตโนมัติไว้</span>
+        </button>
+      )}
+      {isFullscreen && (
+        <button className="hosted-video-exit-fullscreen" onClick={onExitFullscreen} aria-label="ย่อหน้าจอเพื่อสแกน QR">
+          <Minimize2 size={18} />
+          <span>ย่อเพื่อสแกน QR</span>
         </button>
       )}
     </div>
@@ -159,8 +165,9 @@ function DisplayView() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement));
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const toastTimer = useRef();
+  const videoContainerRef = useRef(null);
 
   const notify = useCallback((text) => {
     setMessage(text);
@@ -171,7 +178,7 @@ function DisplayView() {
   useEffect(() => () => clearTimeout(toastTimer.current), []);
 
   useEffect(() => {
-    const syncFullscreen = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    const syncFullscreen = () => setIsFullscreen(document.fullscreenElement === videoContainerRef.current);
     document.addEventListener("fullscreenchange", syncFullscreen);
     return () => document.removeEventListener("fullscreenchange", syncFullscreen);
   }, []);
@@ -179,7 +186,7 @@ function DisplayView() {
   const toggleFullscreen = useCallback(async () => {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
-      else await document.documentElement.requestFullscreen();
+      else await videoContainerRef.current?.requestFullscreen();
     } catch {
       notify("เบราว์เซอร์นี้ไม่อนุญาตให้เปิดเต็มจอ");
     }
@@ -328,15 +335,22 @@ function DisplayView() {
   return (
     <main className="hosted-display">
       <div className="hosted-stage">
-        <HostedPlayer track={room.current} onEnded={advance} onError={reportFailure} />
+        <HostedPlayer
+          track={room.current}
+          onEnded={advance}
+          onError={reportFailure}
+          onExitFullscreen={toggleFullscreen}
+          isFullscreen={isFullscreen}
+          containerRef={videoContainerRef}
+        />
 
         <header className="hosted-topbar" aria-label="สถานะจอคาราโอเกะ">
-          <div className="hosted-browser-mark" aria-hidden="true">
-            <i /><i /><i />
-          </div>
-          <div className="hosted-topbar-brand">
-            <Mic2 size={18} />
-            <strong>{room.stationName}</strong>
+          <div className="hosted-meta-text">
+            <p>{room.current ? "กำลังเล่น" : "พร้อมเล่น"}</p>
+            <h1 title={room.current?.title || "รอเพลงแรก"}>
+              {room.current?.title || "รอเพลงแรก"}
+            </h1>
+            <span>{room.current?.channelTitle || "สแกน QR เพื่อเลือกเพลง"}</span>
           </div>
           <div className="hosted-status">
             <span className={connected ? "connected" : "disconnected"}>
@@ -345,20 +359,10 @@ function DisplayView() {
             </span>
             <strong className="hosted-room-code">ห้อง {session.roomId}</strong>
           </div>
-          <button className="hosted-fullscreen-button" onClick={toggleFullscreen} aria-label={isFullscreen ? "ออกจากโหมดเต็มจอ" : "เปิดโหมดเต็มจอ"}>
-            {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+          <button className="hosted-fullscreen-button" onClick={toggleFullscreen} aria-label="ขยายเฉพาะวิดีโอเต็มจอ">
+            <Maximize2 size={18} />
           </button>
         </header>
-
-        <div className="hosted-meta">
-          <div className="hosted-meta-text">
-            <p>กำลังเล่น</p>
-            <h1 title={room.current?.title || room.stationName}>
-              {room.current?.title || room.stationName}
-            </h1>
-            <span>{room.current?.channelTitle || "จอคาราโอเกะพร้อมแล้ว"}</span>
-          </div>
-        </div>
 
         {room.queue[0] && (
           <div className="hosted-next">

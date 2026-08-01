@@ -52,6 +52,10 @@
   background: linear-gradient(180deg, #0008 0, transparent 23%, transparent 65%, #000b 100%);
 }
 
+.hosted-video:fullscreen::after {
+  display: none;
+}
+
 .hosted-video-mount:empty {
   display: none;
 }
@@ -74,10 +78,10 @@
 }
 
 .hosted-topbar,
-.hosted-meta,
 .hosted-side,
 .hosted-next,
-.hosted-autoplay-unlock {
+.hosted-autoplay-unlock,
+.hosted-video-exit-fullscreen {
   border: 1px solid #ffffff29;
   background: linear-gradient(135deg, #ffffff20, #ffffff0b);
   box-shadow: 0 18px 50px #0006, inset 0 1px #ffffff24;
@@ -97,37 +101,6 @@
   display: flex;
   align-items: center;
   gap: 14px;
-}
-
-.hosted-browser-mark {
-  display: flex;
-  gap: 6px;
-}
-
-.hosted-browser-mark i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #ff6b65;
-  box-shadow: 14px 0 #f6c453, 28px 0 #54d38a;
-}
-
-.hosted-browser-mark i:not(:first-child) {
-  display: none;
-}
-
-.hosted-topbar-brand {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #fff;
-}
-
-.hosted-topbar-brand strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .hosted-status {
@@ -172,19 +145,13 @@
 
 .hosted-fullscreen-button:hover { background: #ffffff22; }
 
-.hosted-meta {
-  position: absolute;
-  z-index: 3;
-  left: var(--display-inset);
-  right: clamp(190px, 18vw, 250px);
-  bottom: var(--display-inset);
+.hosted-meta-text {
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: 760px;
-  padding: clamp(13px, 1.5vw, 20px);
-  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 1vw, 14px);
 }
-
-.hosted-meta-text { min-width: 0; }
 
 .hosted-meta-text p {
   margin: 0;
@@ -196,18 +163,22 @@
 }
 
 .hosted-meta-text h1 {
-  margin: 5px 0 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
   color: #fff;
-  font-size: clamp(1.15rem, 2.4vw, 2.25rem);
-  line-height: 1.18;
+  font-size: clamp(.95rem, 1.35vw, 1.25rem);
+  line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .hosted-meta-text span {
+  flex: 0 1 190px;
+  min-width: 0;
   color: #c9d0d6;
-  font-size: clamp(12px, 1vw, 15px);
+  font-size: clamp(10px, .9vw, 13px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -218,7 +189,7 @@
   position: absolute;
   z-index: 3;
   left: var(--display-inset);
-  bottom: clamp(104px, 15vh, 142px);
+  bottom: var(--display-inset);
   max-width: min(620px, calc(100vw - 2 * var(--display-inset) - 210px));
   padding: 8px 15px;
   border-radius: 999px;
@@ -297,6 +268,23 @@
 
 .hosted-autoplay-unlock span { display: grid; gap: 2px; text-align: left; font-size: 12px; }
 
+.hosted-video-exit-fullscreen {
+  position: absolute;
+  z-index: 8;
+  top: 20px;
+  right: 20px;
+  min-height: 42px;
+  padding: 9px 13px;
+  border-radius: 14px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.hosted-video-exit-fullscreen:hover { background: #ffffff22; }
+
 .hosted-display > .display-toast {
   top: calc(var(--display-inset) + 68px);
   left: var(--display-inset);
@@ -324,9 +312,9 @@
 }
 
 @media (max-width: 700px) {
-  .hosted-browser-mark { display: none; }
   .hosted-topbar { gap: 8px; padding-left: 12px; }
-  .hosted-topbar-brand strong { display: none; }
+  .hosted-meta-text p,
+  .hosted-meta-text span { display: none; }
   .hosted-status .connected,
   .hosted-status .disconnected { font-size: 0; }
   .hosted-status .connected svg,
@@ -334,7 +322,6 @@
   .hosted-side { width: clamp(132px, 27vw, 166px); }
   .hosted-side-kicker,
   .hosted-side-label { display: none; }
-  .hosted-meta { right: var(--display-inset); padding-right: calc(clamp(132px, 27vw, 166px) + 18px); }
   .hosted-next { max-width: calc(100vw - 2 * var(--display-inset)); }
 }
 
@@ -343,8 +330,8 @@
   .hosted-side-kicker,
   .hosted-side-label,
   .hosted-side .button { display: none; }
-  .hosted-meta { max-width: calc(100vw - 2 * var(--display-inset) - 150px); padding: 11px 14px; }
-  .hosted-next { bottom: 98px; max-width: calc(100vw - 2 * var(--display-inset) - 150px); }
+  .hosted-meta-text span { display: none; }
+  .hosted-next { max-width: calc(100vw - 2 * var(--display-inset) - 150px); }
 }
 
 /* ---- Controller (phone) ---- */

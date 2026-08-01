@@ -43,14 +43,12 @@ async function boxes(page) {
     const video = rect(".hosted-video");
     const side = rect(".hosted-side");
     const topbar = rect(".hosted-topbar");
-    const meta = rect(".hosted-meta");
     const next = rect(".hosted-next");
     const doc = document.documentElement;
     return {
       video,
       side,
       topbar,
-      meta,
       next,
       overlapTopbarSide: intersection(topbar, side),
       horizontalScroll: doc.scrollWidth - doc.clientWidth,
@@ -66,6 +64,8 @@ test.describe("hosted display layout", () => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await page.goto("/display");
       await expect(page.locator(".hosted-side")).toBeVisible();
+      await expect(page.locator(".hosted-topbar .hosted-meta-text h1")).toBeVisible();
+      await expect(page.locator(".hosted-meta")).toHaveCount(0);
 
       const layout = await boxes(page);
 
@@ -80,8 +80,7 @@ test.describe("hosted display layout", () => {
       for (const [name, box] of Object.entries({
         video: layout.video,
         side: layout.side,
-        topbar: layout.topbar,
-        meta: layout.meta
+        topbar: layout.topbar
       })) {
         expect(box, `${name} is missing`).not.toBeNull();
         expect(box.x, `${name} starts off-screen left`).toBeGreaterThanOrEqual(-1);
@@ -105,6 +104,24 @@ test.describe("hosted display layout", () => {
   }
 
   test("QR stays at the top-right while the video remains full bleed", async ({ page }) => {
+    await page.addInitScript(() => {
+      let fullscreenTarget = null;
+      Object.defineProperty(document, "fullscreenElement", {
+        configurable: true,
+        get: () => fullscreenTarget
+      });
+      Element.prototype.requestFullscreen = function requestFullscreen() {
+        fullscreenTarget = this;
+        document.dispatchEvent(new Event("fullscreenchange"));
+        return Promise.resolve();
+      };
+      document.exitFullscreen = () => {
+        fullscreenTarget = null;
+        document.dispatchEvent(new Event("fullscreenchange"));
+        return Promise.resolve();
+      };
+    });
+
     await page.setViewportSize({ width: 1600, height: 900 });
     await page.goto("/display");
     await expect(page.locator(".hosted-side")).toBeVisible();
@@ -112,6 +129,21 @@ test.describe("hosted display layout", () => {
     expect(wide.video.width).toBeGreaterThanOrEqual(1599);
     expect(wide.video.height).toBeGreaterThanOrEqual(899);
     expect(wide.side.x).toBeGreaterThan(1200);
+
+    await page.getByRole("button", { name: "ขยายเฉพาะวิดีโอเต็มจอ" }).click();
+    await expect(page.getByRole("button", { name: "ย่อหน้าจอเพื่อสแกน QR" })).toBeVisible();
+    const fullscreenScope = await page.evaluate(() => ({
+      className: document.fullscreenElement?.className,
+      containsTopbar: document.fullscreenElement?.contains(document.querySelector(".hosted-topbar")),
+      containsQr: document.fullscreenElement?.contains(document.querySelector(".hosted-side"))
+    }));
+    expect(fullscreenScope).toEqual({
+      className: "hosted-video",
+      containsTopbar: false,
+      containsQr: false
+    });
+    await page.getByRole("button", { name: "ย่อหน้าจอเพื่อสแกน QR" }).click();
+    await expect(page.locator(".hosted-video-exit-fullscreen")).toHaveCount(0);
 
     await page.setViewportSize({ width: 900, height: 700 });
     await expect(page.locator(".hosted-side")).toBeVisible();
@@ -172,7 +204,7 @@ test.describe("hosted display layout", () => {
       headers,
       data: { track: { videoId: "dQw4w9WgXcQ", title: "เพลงที่หนึ่ง", channelTitle: "QA" } }
     });
-    await expect(page.locator(".hosted-meta-text h1")).toHaveText("เพลงที่หนึ่ง");
+    await expect(page.locator(".hosted-topbar .hosted-meta-text h1")).toHaveText("เพลงที่หนึ่ง");
     await expect.poll(() => page.evaluate(() => window.__hostedPlayerCalls.filter(([name]) => name === "playVideo").length)).toBe(1);
     const unlock = page.getByRole("button", { name: /แตะเพื่อเปิดเสียง/ });
     await expect(unlock).toBeVisible();
@@ -196,7 +228,7 @@ test.describe("hosted display layout", () => {
     const revision = (await view.json()).data.revision;
     await page.request.post(`${queue}/advance`, { headers, data: { revision } });
 
-    await expect(page.locator(".hosted-meta-text h1")).toHaveText("เพลงที่สอง");
+    await expect(page.locator(".hosted-topbar .hosted-meta-text h1")).toHaveText("เพลงที่สอง");
 
     // The display must still be alive: the QR panel is part of the same tree.
     await expect(page.locator(".hosted-side")).toBeVisible();
@@ -240,7 +272,7 @@ test.describe("hosted display layout", () => {
     expect(data.current.title).toBe("เพลงต้องอยู่รอด");
     expect(data.queue, "the waiting queue was drained").toHaveLength(1);
 
-    await expect(page.locator(".hosted-meta-text h1")).toHaveText("เพลงต้องอยู่รอด");
+    await expect(page.locator(".hosted-topbar .hosted-meta-text h1")).toHaveText("เพลงต้องอยู่รอด");
     await expect(page.locator(".hosted-next")).toContainText("เพลงที่สองต้องอยู่รอด");
   });
 
@@ -259,7 +291,7 @@ test.describe("hosted display layout", () => {
     });
     expect(response.ok()).toBeTruthy();
 
-    await expect(page.locator(".hosted-meta-text h1")).toContainText("เพลงคาราโอเกะ");
+    await expect(page.locator(".hosted-topbar .hosted-meta-text h1")).toContainText("เพลงคาราโอเกะ");
     const layout = await boxes(page);
     expect(layout.horizontalScroll, "long title caused horizontal scroll").toBeLessThanOrEqual(1);
   });

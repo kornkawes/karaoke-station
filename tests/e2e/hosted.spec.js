@@ -9,7 +9,7 @@ test("display opens a room and a phone joins and queues a song", async ({ page, 
   await page.goto("/display");
 
   // The display provisions its own room with no interaction.
-  await expect(page.getByText("รอเพลงแรก")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "รอเพลงแรก", level: 2 })).toBeVisible();
   await expect(page.getByText(/^ห้อง /)).toBeVisible();
 
   const hostSession = await page.evaluate(() => JSON.parse(sessionStorage.getItem("karaoke.hostSession")));
