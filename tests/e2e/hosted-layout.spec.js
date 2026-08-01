@@ -3,10 +3,9 @@ import { expect, test } from "@playwright/test";
 /**
  * Layout regression guard.
  *
- * The first hosted display floated the QR panel with `position: fixed`, so it sat
- * on top of the video whenever the window was narrow. These tests assert geometry
- * rather than appearance: the QR must never intersect the stage, the video must
- * stay 16:9, and the page must never scroll.
+ * The display is intentionally an edge-to-edge video canvas with glass controls
+ * floating above it. These tests assert that the HUD stays usable at every target
+ * viewport: full-bleed video, QR at top-right, no chrome collisions, no scroll.
  */
 
 const VIEWPORTS = [
@@ -43,18 +42,17 @@ async function boxes(page) {
     };
     const video = rect(".hosted-video");
     const side = rect(".hosted-side");
+    const topbar = rect(".hosted-topbar");
     const meta = rect(".hosted-meta");
     const next = rect(".hosted-next");
     const doc = document.documentElement;
     return {
       video,
       side,
+      topbar,
       meta,
       next,
-      overlapVideoSide: intersection(video, side),
-      overlapMetaSide: intersection(meta, side),
-      overlapNextSide: intersection(next, side),
-      overlapVideoMeta: intersection(video, meta),
+      overlapTopbarSide: intersection(topbar, side),
       horizontalScroll: doc.scrollWidth - doc.clientWidth,
       verticalScroll: doc.scrollHeight - doc.clientHeight,
       viewport: { width: window.innerWidth, height: window.innerHeight }
@@ -64,18 +62,15 @@ async function boxes(page) {
 
 test.describe("hosted display layout", () => {
   for (const viewport of VIEWPORTS) {
-    test(`${viewport.label} (${viewport.width}x${viewport.height}) has no overlap or scroll`, async ({ page }) => {
+    test(`${viewport.label} (${viewport.width}x${viewport.height}) keeps the glass HUD usable`, async ({ page }) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await page.goto("/display");
       await expect(page.locator(".hosted-side")).toBeVisible();
 
       const layout = await boxes(page);
 
-      // The QR panel must never cover the video, the title block, or the next-up pill.
-      expect(layout.overlapVideoSide, "QR overlaps the video").toBe(0);
-      expect(layout.overlapMetaSide, "QR overlaps the title block").toBe(0);
-      expect(layout.overlapNextSide, "QR overlaps the next-up pill").toBe(0);
-      expect(layout.overlapVideoMeta, "title block overlaps the video").toBe(0);
+      // The QR intentionally floats over the video, but never over the top status bar.
+      expect(layout.overlapTopbarSide, "QR overlaps the status bar").toBe(0);
 
       // A karaoke display that scrolls is broken; everything must fit.
       expect(layout.horizontalScroll, "page scrolls horizontally").toBeLessThanOrEqual(1);
@@ -85,6 +80,7 @@ test.describe("hosted display layout", () => {
       for (const [name, box] of Object.entries({
         video: layout.video,
         side: layout.side,
+        topbar: layout.topbar,
         meta: layout.meta
       })) {
         expect(box, `${name} is missing`).not.toBeNull();
@@ -94,10 +90,13 @@ test.describe("hosted display layout", () => {
         expect(box.bottom, `${name} runs off-screen bottom`).toBeLessThanOrEqual(viewport.height + 1);
       }
 
-      // The video keeps a true 16:9 stage at every size.
-      const aspect = layout.video.width / layout.video.height;
-      expect(aspect, `aspect ratio drifted: ${aspect.toFixed(3)}`).toBeGreaterThan(1.74);
-      expect(aspect, `aspect ratio drifted: ${aspect.toFixed(3)}`).toBeLessThan(1.81);
+      // The video canvas fills the display; YouTube itself letterboxes when needed.
+      expect(layout.video.width).toBeGreaterThanOrEqual(viewport.width - 1);
+      expect(layout.video.height).toBeGreaterThanOrEqual(viewport.height - 1);
+
+      // QR is a true top-right popup, beneath the browser-like status bar.
+      expect(layout.side.x).toBeGreaterThan(viewport.width / 2);
+      expect(layout.side.y).toBeGreaterThanOrEqual(layout.topbar.bottom - 1);
 
       // The QR has to stay big enough for a phone camera to actually read it.
       const qr = await page.locator(".hosted-side svg").boundingBox();
@@ -105,19 +104,21 @@ test.describe("hosted display layout", () => {
     });
   }
 
-  test("QR sits beside the video on wide screens and below it when narrow", async ({ page }) => {
+  test("QR stays at the top-right while the video remains full bleed", async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 900 });
     await page.goto("/display");
     await expect(page.locator(".hosted-side")).toBeVisible();
     const wide = await boxes(page);
-    // Beside: the panel starts to the right of where the video ends.
-    expect(wide.side.x).toBeGreaterThanOrEqual(wide.video.right - 1);
+    expect(wide.video.width).toBeGreaterThanOrEqual(1599);
+    expect(wide.video.height).toBeGreaterThanOrEqual(899);
+    expect(wide.side.x).toBeGreaterThan(1200);
 
     await page.setViewportSize({ width: 900, height: 700 });
     await expect(page.locator(".hosted-side")).toBeVisible();
     const narrow = await boxes(page);
-    // Below: the panel starts under the video instead of covering it.
-    expect(narrow.side.y).toBeGreaterThanOrEqual(narrow.video.bottom - 1);
+    expect(narrow.video.width).toBeGreaterThanOrEqual(899);
+    expect(narrow.video.height).toBeGreaterThanOrEqual(699);
+    expect(narrow.side.x).toBeGreaterThan(600);
   });
 
   /**
@@ -130,6 +131,30 @@ test.describe("hosted display layout", () => {
     page.on("pageerror", (error) => errors.push(String(error)));
     page.on("console", (message) => {
       if (message.type() === "error") errors.push(message.text());
+    });
+
+    // Deterministic YouTube stand-in: verify the first selected song is asked to
+    // play immediately and that the browser-policy fallback can resume with sound.
+    await page.addInitScript(() => {
+      window.__hostedPlayerCalls = [];
+      class FakePlayer {
+        constructor(_mount, options) {
+          this.options = options;
+          this.blockedOnce = false;
+          queueMicrotask(() => options.events.onReady({ target: this }));
+        }
+        setVolume(value) { window.__hostedPlayerCalls.push(["setVolume", value]); }
+        playVideo() {
+          window.__hostedPlayerCalls.push(["playVideo"]);
+          if (!this.blockedOnce) {
+            this.blockedOnce = true;
+            queueMicrotask(() => this.options.events.onAutoplayBlocked());
+          }
+        }
+        unMute() { window.__hostedPlayerCalls.push(["unMute"]); }
+        destroy() {}
+      }
+      window.YT = { Player: FakePlayer, PlayerState: { ENDED: 0, PLAYING: 1 } };
     });
 
     await page.setViewportSize({ width: 1366, height: 768 });
@@ -148,6 +173,17 @@ test.describe("hosted display layout", () => {
       data: { track: { videoId: "dQw4w9WgXcQ", title: "เพลงที่หนึ่ง", channelTitle: "QA" } }
     });
     await expect(page.locator(".hosted-meta-text h1")).toHaveText("เพลงที่หนึ่ง");
+    await expect.poll(() => page.evaluate(() => window.__hostedPlayerCalls.filter(([name]) => name === "playVideo").length)).toBe(1);
+    const unlock = page.getByRole("button", { name: /แตะเพื่อเปิดเสียง/ });
+    await expect(unlock).toBeVisible();
+    await unlock.click();
+    await expect.poll(() => page.evaluate(() => window.__hostedPlayerCalls.slice(0, 5))).toEqual([
+      ["setVolume", 75],
+      ["playVideo"],
+      ["unMute"],
+      ["setVolume", 75],
+      ["playVideo"]
+    ]);
 
     // Second track queued, then advance: the player must tear down and rebuild.
     await page.request.post(queue, {
@@ -225,7 +261,7 @@ test.describe("hosted display layout", () => {
 
     await expect(page.locator(".hosted-meta-text h1")).toContainText("เพลงคาราโอเกะ");
     const layout = await boxes(page);
-    expect(layout.overlapMetaSide, "long title pushed the title block into the QR").toBe(0);
     expect(layout.horizontalScroll, "long title caused horizontal scroll").toBeLessThanOrEqual(1);
   });
+
 });

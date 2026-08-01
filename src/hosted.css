@@ -1,65 +1,55 @@
-/*
- * Hosted display layout.
- *
- * The legacy display floated the QR panel with `position: fixed`, which overlapped
- * the video as soon as the window got narrow. Here the QR is a real grid column, so
- * it can never cover the stage; below 1100px it moves under the video instead.
- *
- * Scoped under .hosted-display so the legacy installer lane keeps its own styling.
- */
-
+/* Hosted display: edge-to-edge video with a lightweight liquid-glass HUD. */
 .hosted-display {
+  --display-inset: clamp(10px, 1.5vw, 22px);
+  position: relative;
+  width: 100vw;
   height: 100dvh;
   overflow: hidden;
-  padding: clamp(12px, 1.8vw, 24px);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(190px, 17vw, 250px);
-  grid-template-areas: "stage side";
-  gap: clamp(14px, 1.6vw, 28px);
-  align-items: center;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 18% 10%, #2d4156 0, transparent 32%),
+    radial-gradient(circle at 82% 90%, #4d3029 0, transparent 30%),
+    #080a0d;
 }
 
-/* Loading / error states have no QR column. */
 .hosted-display-centered {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "stage";
-  place-content: center;
-  justify-items: center;
+  display: grid;
+  place-items: center;
+  padding: var(--display-inset);
 }
 
 .hosted-display-centered .hosted-stage {
-  align-items: center;
+  position: static;
+  width: min(100%, 680px);
+  height: auto;
+  min-height: 280px;
+  display: grid;
+  place-items: center;
   gap: 16px;
 }
 
 .hosted-stage {
-  grid-area: stage;
+  position: absolute;
+  inset: 0;
   min-width: 0;
   min-height: 0;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 12px;
 }
 
-/*
- * Cap the video by height as well as width so a short/wide window can never push
- * the title or "next up" pill off screen.
- */
 .hosted-video {
-  width: min(100%, calc((100dvh - 210px) * 1.7778));
-  aspect-ratio: 16 / 9;
-  margin: 0 auto;
-  border-radius: 14px;
+  position: absolute;
+  inset: 0;
   overflow: hidden;
-  background: #1c1b1a;
-  box-shadow: 0 20px 60px #0008;
-  /* flex-shrink must stay 0: letting flex squeeze the height would override
-     aspect-ratio and distort the stage. Width alone drives the size. */
-  flex: 0 0 auto;
+  background: #080a0d;
   display: grid;
   place-items: center;
+}
+
+.hosted-video::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, #0008 0, transparent 23%, transparent 65%, #000b 100%);
 }
 
 .hosted-video-mount:empty {
@@ -75,60 +65,76 @@
 }
 
 .hosted-video .empty-state {
+  position: relative;
+  z-index: 1;
   min-height: 0;
-  padding: 20px;
+  max-width: 460px;
+  padding: 28px;
   text-align: center;
 }
 
-.hosted-meta {
-  flex: 0 0 auto;
-  width: 100%;
-  max-width: min(100%, calc((100dvh - 210px) * 1.7778));
-  margin: 0 auto;
+.hosted-topbar,
+.hosted-meta,
+.hosted-side,
+.hosted-next,
+.hosted-autoplay-unlock {
+  border: 1px solid #ffffff29;
+  background: linear-gradient(135deg, #ffffff20, #ffffff0b);
+  box-shadow: 0 18px 50px #0006, inset 0 1px #ffffff24;
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  backdrop-filter: blur(22px) saturate(150%);
+}
+
+.hosted-topbar {
+  position: absolute;
+  z-index: 4;
+  top: var(--display-inset);
+  left: var(--display-inset);
+  right: var(--display-inset);
+  min-height: 54px;
+  border-radius: 18px;
+  padding: 9px 10px 9px 16px;
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
+  align-items: center;
+  gap: 14px;
+}
+
+.hosted-browser-mark {
+  display: flex;
+  gap: 6px;
+}
+
+.hosted-browser-mark i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff6b65;
+  box-shadow: 14px 0 #f6c453, 28px 0 #54d38a;
+}
+
+.hosted-browser-mark i:not(:first-child) {
+  display: none;
+}
+
+.hosted-topbar-brand {
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
 }
 
-.hosted-meta-text {
-  min-width: 0;
-}
-
-.hosted-meta-text p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 13px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.hosted-meta-text h1 {
-  margin: 4px 0 2px;
-  font-size: clamp(1.1rem, 2.1vw, 2rem);
-  line-height: 1.25;
-  /* Long YouTube titles must clip, not wrap the layout apart. */
+.hosted-topbar-brand strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.hosted-meta-text span {
-  color: var(--muted);
-  font-size: clamp(12px, 1.1vw, 15px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  display: block;
 }
 
 .hosted-status {
-  flex: 0 0 auto;
-  text-align: right;
-  display: grid;
-  gap: 4px;
-  justify-items: end;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 1.2vw, 18px);
 }
 
 .hosted-status .connected,
@@ -137,170 +143,208 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
+  white-space: nowrap;
 }
 
-.hosted-status .connected {
-  color: var(--aqua);
-}
-
-.hosted-status .disconnected {
-  color: var(--danger);
-}
+.hosted-status .connected { color: #8bf0c0; }
+.hosted-status .disconnected { color: #ffd17a; }
 
 .hosted-room-code {
-  font-size: clamp(13px, 1.3vw, 17px);
-  letter-spacing: 0.12em;
+  color: #fff;
+  font-size: clamp(12px, 1.1vw, 16px);
+  letter-spacing: 0.1em;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
-.hosted-next {
+.hosted-fullscreen-button {
+  width: 36px;
+  height: 36px;
   flex: 0 0 auto;
-  align-self: center;
-  max-width: min(100%, 720px);
-  padding: 8px 18px;
-  border-radius: 999px;
-  background: #2b2823;
-  border: 1px solid #5b4a33;
-  color: var(--muted);
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  min-width: 0;
-  font-size: clamp(12px, 1.1vw, 15px);
+  border: 1px solid #ffffff24;
+  border-radius: 11px;
+  background: #ffffff12;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
 }
 
-.hosted-next strong {
+.hosted-fullscreen-button:hover { background: #ffffff22; }
+
+.hosted-meta {
+  position: absolute;
+  z-index: 3;
+  left: var(--display-inset);
+  right: clamp(190px, 18vw, 250px);
+  bottom: var(--display-inset);
+  min-width: 0;
+  max-width: 760px;
+  padding: clamp(13px, 1.5vw, 20px);
+  border-radius: 20px;
+}
+
+.hosted-meta-text { min-width: 0; }
+
+.hosted-meta-text p {
+  margin: 0;
+  color: #b7c1ca;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.hosted-meta-text h1 {
+  margin: 5px 0 2px;
+  color: #fff;
+  font-size: clamp(1.15rem, 2.4vw, 2.25rem);
+  line-height: 1.18;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text);
 }
 
-/* ---- QR side panel ---- */
-
-.hosted-side {
-  grid-area: side;
-  justify-self: end;
-  align-self: center;
-  display: grid;
-  justify-items: center;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--warm);
-  border-radius: 14px;
-  background: var(--surface);
-  box-shadow: 0 8px 26px #0007;
-  max-width: 100%;
-}
-
-.hosted-side svg {
-  border-radius: 6px;
-  width: clamp(96px, 12vw, 160px);
-  height: auto;
+.hosted-meta-text span {
+  color: #c9d0d6;
+  font-size: clamp(12px, 1vw, 15px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   display: block;
 }
 
+.hosted-next {
+  position: absolute;
+  z-index: 3;
+  left: var(--display-inset);
+  bottom: clamp(104px, 15vh, 142px);
+  max-width: min(620px, calc(100vw - 2 * var(--display-inset) - 210px));
+  padding: 8px 15px;
+  border-radius: 999px;
+  color: #c9d0d6;
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  min-width: 0;
+  font-size: clamp(11px, 1vw, 14px);
+}
+
+.hosted-next strong {
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hosted-side {
+  position: absolute;
+  z-index: 5;
+  top: calc(var(--display-inset) + 68px);
+  right: var(--display-inset);
+  width: clamp(164px, 15vw, 210px);
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 13px;
+  border-radius: 20px;
+}
+
+.hosted-side-kicker {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.hosted-side svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  padding: 7px;
+  border-radius: 13px;
+  background: #f7f8fa;
+}
+
 .hosted-side-label {
-  font-size: 12px;
-  color: var(--muted);
+  color: #d5dae0;
+  font-size: 11px;
   text-align: center;
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 .hosted-side .button {
   width: 100%;
-  font-size: 12px;
-  padding: 7px 10px;
+  padding: 7px 9px;
+  font-size: 11px;
   white-space: nowrap;
 }
 
+.hosted-autoplay-unlock {
+  position: absolute;
+  z-index: 6;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 14px 18px;
+  border-radius: 18px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  cursor: pointer;
+}
+
+.hosted-autoplay-unlock span { display: grid; gap: 2px; text-align: left; font-size: 12px; }
+
+.hosted-display > .display-toast {
+  top: calc(var(--display-inset) + 68px);
+  left: var(--display-inset);
+  max-width: min(520px, calc(100vw - 2 * var(--display-inset) - clamp(180px, 18vw, 230px)));
+  border: 1px solid #ffffff29;
+  border-left: 4px solid var(--aqua);
+  border-radius: 16px;
+  background: #12171bcf;
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+}
+
 .hosted-warning {
-  grid-column: 1 / -1;
+  position: absolute;
+  z-index: 7;
+  left: 50%;
+  top: 82px;
+  transform: translateX(-50%);
   margin: 0;
-  text-align: center;
-  font-size: 13px;
-  color: var(--danger);
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: #39171be6;
+  color: #ffb4bd;
+  font-size: 12px;
 }
 
-/* ---- Narrow windows: QR drops below the stage instead of covering it ---- */
-
-@media (max-width: 1100px) {
-  .hosted-display {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      "stage"
-      "side";
-    align-content: center;
-    gap: 12px;
-  }
-
-  .hosted-side {
-    justify-self: center;
-    grid-auto-flow: column;
-    align-items: center;
-    justify-items: start;
-    gap: 14px;
-    padding: 10px 14px;
-  }
-
-  .hosted-side svg {
-    width: clamp(72px, 14vw, 110px);
-  }
-
-  .hosted-side .button {
-    width: auto;
-  }
-
-  /* The QR row now sits below the stage, so reserve its height too. */
-  .hosted-video {
-    width: min(100%, calc((100dvh - 300px) * 1.7778));
-  }
-
-  .hosted-meta {
-    max-width: 100%;
-  }
+@media (max-width: 700px) {
+  .hosted-browser-mark { display: none; }
+  .hosted-topbar { gap: 8px; padding-left: 12px; }
+  .hosted-topbar-brand strong { display: none; }
+  .hosted-status .connected,
+  .hosted-status .disconnected { font-size: 0; }
+  .hosted-status .connected svg,
+  .hosted-status .disconnected svg { width: 18px; height: 18px; }
+  .hosted-side { width: clamp(132px, 27vw, 166px); }
+  .hosted-side-kicker,
+  .hosted-side-label { display: none; }
+  .hosted-meta { right: var(--display-inset); padding-right: calc(clamp(132px, 27vw, 166px) + 18px); }
+  .hosted-next { max-width: calc(100vw - 2 * var(--display-inset)); }
 }
 
-@media (max-width: 620px) {
-  .hosted-display {
-    padding: 10px;
-    gap: 10px;
-  }
-
-  .hosted-meta {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-  }
-
-  .hosted-status {
-    text-align: left;
-    justify-items: start;
-    flex-direction: row;
-  }
-
-  .hosted-side-label {
-    display: none;
-  }
-
-  .hosted-video {
-    width: min(100%, calc((100dvh - 290px) * 1.7778));
-  }
-}
-
-/* Short windows (e.g. a half-height browser): shrink chrome, keep 16:9 intact. */
 @media (max-height: 620px) {
-  .hosted-side svg {
-    width: clamp(64px, 9vw, 96px);
-  }
-
-  .hosted-meta-text h1 {
-    font-size: clamp(1rem, 1.6vw, 1.3rem);
-  }
-
-  .hosted-next {
-    padding: 5px 14px;
-  }
+  .hosted-side { width: clamp(104px, 13vw, 138px); padding: 9px; }
+  .hosted-side-kicker,
+  .hosted-side-label,
+  .hosted-side .button { display: none; }
+  .hosted-meta { max-width: calc(100vw - 2 * var(--display-inset) - 150px); padding: 11px 14px; }
+  .hosted-next { bottom: 98px; max-width: calc(100vw - 2 * var(--display-inset) - 150px); }
 }
 
 /* ---- Controller (phone) ---- */

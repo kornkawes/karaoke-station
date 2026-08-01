@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ListMusic, LoaderCircle, Mic2, Music2, Play, Plus, Search, SkipForward, Trash2, Wifi, WifiOff, X } from "lucide-react";
+import { ListMusic, LoaderCircle, Maximize2, Mic2, Minimize2, Music2, Play, Plus, Search, SkipForward, Trash2, Volume2, Wifi, WifiOff, X } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import {
   CONTROLLER_STORAGE_KEY,
@@ -54,6 +54,7 @@ function Toast({ message, onClose }) {
 function HostedPlayer({ track, onEnded, onError, volume = 75 }) {
   const rootRef = useRef(null);
   const playerRef = useRef(null);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
 
   // Keep the callbacks in refs so the player effect depends only on the video id.
   // Re-running it on every parent render would tear down and rebuild the iframe.
@@ -69,6 +70,7 @@ function HostedPlayer({ track, onEnded, onError, volume = 75 }) {
     // Per-run flag rather than a ref: a ref is shared across effect runs, so a
     // remount would reset it and re-enable an already-spent ENDED handler.
     let ended = false;
+    setAutoplayBlocked(false);
     if (!track?.videoId) return undefined;
 
     const create = () => {
@@ -92,6 +94,7 @@ function HostedPlayer({ track, onEnded, onError, volume = 75 }) {
             // torn down by StrictMode's double-invoke (or a fast track change) could
             // still fire ENDED and advance the queue, silently eating a song.
             if (cancelled || ended) return;
+            if (data === window.YT.PlayerState.PLAYING) setAutoplayBlocked(false);
             if (data === window.YT.PlayerState.ENDED) {
               ended = true;
               onEndedRef.current();
@@ -100,6 +103,9 @@ function HostedPlayer({ track, onEnded, onError, volume = 75 }) {
           onError: ({ data }) => {
             if (cancelled) return;
             onErrorRef.current(data);
+          },
+          onAutoplayBlocked: () => {
+            if (!cancelled) setAutoplayBlocked(true);
           }
         }
       });
@@ -122,11 +128,26 @@ function HostedPlayer({ track, onEnded, onError, volume = 75 }) {
     };
   }, [track?.videoId]);
 
+  const resumeWithSound = () => {
+    const player = playerRef.current;
+    if (!player) return;
+    player.unMute?.();
+    player.setVolume?.(volumeRef.current);
+    player.playVideo?.();
+    setAutoplayBlocked(false);
+  };
+
   return (
     <div className="hosted-video">
       {/* Stable container React owns; YouTube only ever touches its children. */}
       <div className="hosted-video-mount" ref={rootRef} aria-label={track ? `YouTube ${track.title}` : undefined} />
       {!track && <Empty title="รอเพลงแรก" detail="สแกน QR ด้วยมือถือเพื่อค้นหาและเพิ่มเพลง" />}
+      {track && autoplayBlocked && (
+        <button className="hosted-autoplay-unlock" onClick={resumeWithSound}>
+          <Volume2 size={22} />
+          <span><strong>แตะเพื่อเปิดเสียง</strong>เบราว์เซอร์หยุดการเล่นอัตโนมัติไว้</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -138,6 +159,7 @@ function DisplayView() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement));
   const toastTimer = useRef();
 
   const notify = useCallback((text) => {
@@ -147,6 +169,21 @@ function DisplayView() {
   }, []);
 
   useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  useEffect(() => {
+    const syncFullscreen = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", syncFullscreen);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreen);
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch {
+      notify("เบราว์เซอร์นี้ไม่อนุญาตให้เปิดเต็มจอ");
+    }
+  }, [notify]);
 
   const createRoom = useCallback(async () => {
     setCreating(true);
@@ -293,6 +330,26 @@ function DisplayView() {
       <div className="hosted-stage">
         <HostedPlayer track={room.current} onEnded={advance} onError={reportFailure} />
 
+        <header className="hosted-topbar" aria-label="สถานะจอคาราโอเกะ">
+          <div className="hosted-browser-mark" aria-hidden="true">
+            <i /><i /><i />
+          </div>
+          <div className="hosted-topbar-brand">
+            <Mic2 size={18} />
+            <strong>{room.stationName}</strong>
+          </div>
+          <div className="hosted-status">
+            <span className={connected ? "connected" : "disconnected"}>
+              {connected ? <Wifi size={15} /> : <WifiOff size={15} />}
+              {connected ? "เชื่อมต่อแล้ว" : "กำลังเชื่อมต่อ"}
+            </span>
+            <strong className="hosted-room-code">ห้อง {session.roomId}</strong>
+          </div>
+          <button className="hosted-fullscreen-button" onClick={toggleFullscreen} aria-label={isFullscreen ? "ออกจากโหมดเต็มจอ" : "เปิดโหมดเต็มจอ"}>
+            {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+          </button>
+        </header>
+
         <div className="hosted-meta">
           <div className="hosted-meta-text">
             <p>กำลังเล่น</p>
@@ -300,13 +357,6 @@ function DisplayView() {
               {room.current?.title || room.stationName}
             </h1>
             <span>{room.current?.channelTitle || "จอคาราโอเกะพร้อมแล้ว"}</span>
-          </div>
-          <div className="hosted-status">
-            <span className={connected ? "connected" : "disconnected"}>
-              {connected ? <Wifi size={15} /> : <WifiOff size={15} />}
-              {connected ? "เชื่อมต่อ" : "ขาดการเชื่อมต่อ"}
-            </span>
-            <strong className="hosted-room-code">ห้อง {session.roomId}</strong>
           </div>
         </div>
 
@@ -319,6 +369,7 @@ function DisplayView() {
       </div>
 
       <aside className="hosted-side">
+        <span className="hosted-side-kicker">เพิ่มเพลงจากมือถือ</span>
         <QRCodeSVG value={joinUrl} size={160} bgColor="#f7f8fa" fgColor="#101317" />
         <span className="hosted-side-label">สแกนเพื่อเลือกเพลง</span>
         <button className="button secondary" onClick={createRoom}>สร้างห้องใหม่</button>
