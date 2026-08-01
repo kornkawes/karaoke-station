@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ListMusic, LoaderCircle, Maximize2, Mic2, Minimize2, Music2, Play, Plus, Search, SkipForward, Trash2, Volume2, Wifi, WifiOff, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ListMusic, LoaderCircle, Maximize2, Mic2, Minimize2, Music2, Play, Plus, Search, SkipForward, Trash2, Volume2, Wifi, WifiOff, X } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import {
   CONTROLLER_STORAGE_KEY,
@@ -452,6 +452,8 @@ function ControllerView({ session, onRevoked }) {
   const [results, setResults] = useState([]);
   const [phase, setPhase] = useState("idle");
   const [notice, setNotice] = useState("");
+  const [reorderMode, setReorderMode] = useState(false);
+  const [movingQueueId, setMovingQueueId] = useState("");
 
   useEffect(() => connectRoom(session, (event) => {
     if (event.type === "connection") setConnected(event.connected);
@@ -519,6 +521,33 @@ function ControllerView({ session, onRevoked }) {
     }
   };
 
+  const moveQueueItem = async (track, fromIndex, direction) => {
+    const toIndex = fromIndex + direction;
+    if (toIndex < 0 || toIndex >= room.queue.length || movingQueueId) return;
+    setMovingQueueId(track.queueId);
+    try {
+      const result = await guard(() => hostedApi.reorder(
+        session.roomId,
+        session.token,
+        track.queueId,
+        toIndex,
+        room.revision
+      ));
+      const nextQueue = normalizeQueue(result.queue);
+      setRoom((old) => old.revision > nextQueue.revision ? old : ({
+        ...old,
+        revision: nextQueue.revision,
+        current: nextQueue.current,
+        queue: nextQueue.items
+      }));
+      setNotice(`ย้าย “${track.title}” ไปคิว ${toIndex + 1} แล้ว`);
+    } catch (error) {
+      setNotice(error.message || "คิวถูกเปลี่ยนโดยคนอื่น ลองใหม่อีกครั้ง");
+    } finally {
+      setMovingQueueId("");
+    }
+  };
+
   const skip = async () => {
     try {
       await guard(() => hostedApi.skip(session.roomId, session.token, room.revision));
@@ -570,11 +599,21 @@ function ControllerView({ session, onRevoked }) {
           </div>
         </section>
       ) : (
-        <section className="mobile-section queue-tab">
-          <h1>คิวเพลง <span>({room.queue.length})</span></h1>
-          <p>ทุกคนลบ ข้าม หรือเล่นทันทีได้</p>
+        <section className={`mobile-section queue-tab${reorderMode ? " reorder-mode" : ""}`}>
+          <div className="queue-heading">
+            <h1>คิวเพลง <span>({room.queue.length})</span></h1>
+            <button
+              className={`button queue-reorder-toggle${reorderMode ? " active" : ""}`}
+              aria-pressed={reorderMode}
+              disabled={!reorderMode && room.queue.length < 2}
+              onClick={() => setReorderMode((active) => !active)}
+            >
+              <ArrowUpDown size={16} /> {reorderMode ? "เสร็จสิ้น" : "สลับคิว"}
+            </button>
+          </div>
+          <p>{reorderMode ? "กดลูกศรเพื่อเลื่อนเพลงขึ้นหรือลงในคิว" : "ทุกคนลบ ข้าม เล่นทันที หรือสลับลำดับคิวได้"}</p>
           {room.queue.length ? (
-            <ol>
+            <ol aria-label="รายการเพลงรอคิว">
               {room.queue.map((track, index) => (
                 <li key={track.queueId}>
                   <span>{index + 1}</span>
@@ -584,12 +623,35 @@ function ControllerView({ session, onRevoked }) {
                     <small>{track.requestedBy || track.channelTitle}</small>
                   </div>
                   <div className="queue-row-actions">
-                    <button className="icon-button" aria-label={`เล่น ${track.title} ทันที`} onClick={() => playNow(track)}>
-                      <Play size={17} />
-                    </button>
-                    <button className="icon-button" aria-label={`ลบ ${track.title}`} onClick={() => remove(track)}>
-                      <Trash2 size={17} />
-                    </button>
+                    {reorderMode ? (
+                      <>
+                        <button
+                          className="icon-button reorder-arrow"
+                          aria-label={`ย้าย ${track.title} ขึ้น`}
+                          disabled={index === 0 || Boolean(movingQueueId)}
+                          onClick={() => moveQueueItem(track, index, -1)}
+                        >
+                          <ArrowUp size={17} />
+                        </button>
+                        <button
+                          className="icon-button reorder-arrow"
+                          aria-label={`ย้าย ${track.title} ลง`}
+                          disabled={index === room.queue.length - 1 || Boolean(movingQueueId)}
+                          onClick={() => moveQueueItem(track, index, 1)}
+                        >
+                          <ArrowDown size={17} />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button className="icon-button" aria-label={`เล่น ${track.title} ทันที`} onClick={() => playNow(track)}>
+                          <Play size={17} />
+                        </button>
+                        <button className="icon-button" aria-label={`ลบ ${track.title}`} onClick={() => remove(track)}>
+                          <Trash2 size={17} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </li>
               ))}
@@ -601,7 +663,7 @@ function ControllerView({ session, onRevoked }) {
       )}
 
       <nav className="bottom-tabs" aria-label="เมนูมือถือ">
-        <button className={tab === "search" ? "active" : ""} onClick={() => setTab("search")}>
+        <button className={tab === "search" ? "active" : ""} onClick={() => { setTab("search"); setReorderMode(false); }}>
           <Search /> ค้นหา
         </button>
         <button className={tab === "queue" ? "active" : ""} onClick={() => setTab("queue")}>

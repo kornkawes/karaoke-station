@@ -53,9 +53,42 @@ test("display opens a room and a phone joins and queues a song", async ({ page, 
   // The display receives it over the socket without a reload.
   await expect(page.getByRole("heading", { name: "เพลงทดสอบ Karaoke" })).toBeVisible({ timeout: 10_000 });
 
-  // And the phone's queue tab reflects the same shared state.
+  // Add three waiting tracks, then reorder them from the phone UI.
+  const waitingTitles = ["เพลงคิว A", "เพลงคิว B", "เพลงคิว C"];
+  for (const [index, title] of waitingTitles.entries()) {
+    const queued = await request.post(`/api/v1/rooms/${hostSession.roomId}/queue`, {
+      headers: { Authorization: `Bearer ${controller.token}` },
+      data: { track: { videoId: `queue00000${index}`, title, channelTitle: "QA" } }
+    });
+    expect(queued.ok()).toBeTruthy();
+  }
+
+  // The phone's queue tab reflects the shared waiting queue.
   await phone.getByRole("button", { name: /คิว/ }).click();
   await expect(phone.getByText("เพลงทดสอบ Karaoke")).toBeVisible();
+  const queueTitles = phone.locator(".queue-tab ol li strong");
+  await expect(queueTitles).toHaveText(waitingTitles);
+
+  await phone.getByRole("button", { name: "สลับคิว" }).click();
+  await expect(phone.getByRole("button", { name: "เสร็จสิ้น" })).toHaveAttribute("aria-pressed", "true");
+
+  // Move queue #3 to #1 (two upward steps), then move the old #1 down one slot.
+  await phone.getByRole("button", { name: "ย้าย เพลงคิว C ขึ้น" }).click();
+  await expect(queueTitles).toHaveText(["เพลงคิว A", "เพลงคิว C", "เพลงคิว B"]);
+  await phone.getByRole("button", { name: "ย้าย เพลงคิว C ขึ้น" }).click();
+  await expect(queueTitles).toHaveText(["เพลงคิว C", "เพลงคิว A", "เพลงคิว B"]);
+  await phone.getByRole("button", { name: "ย้าย เพลงคิว A ลง" }).click();
+  await expect(queueTitles).toHaveText(["เพลงคิว C", "เพลงคิว B", "เพลงคิว A"]);
+
+  const reordered = await request.get(`/api/v1/rooms/${hostSession.roomId}/queue`, {
+    headers: { Authorization: `Bearer ${controller.token}` }
+  });
+  const reorderedView = (await reordered.json()).data;
+  expect(reorderedView.current.title).toBe("เพลงทดสอบ Karaoke");
+  expect(reorderedView.queue.map((track) => track.title)).toEqual(["เพลงคิว C", "เพลงคิว B", "เพลงคิว A"]);
+
+  await phone.getByRole("button", { name: "เสร็จสิ้น" }).click();
+  await expect(phone.getByRole("button", { name: "สลับคิว" })).toHaveAttribute("aria-pressed", "false");
 });
 
 test("a controller cannot reach another room", async ({ page, context, request }) => {

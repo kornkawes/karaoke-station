@@ -104,6 +104,17 @@ describe("request shaping", () => {
     expect(JSON.parse(options.body).track.videoId).toBe("dQw4w9WgXcQ");
   });
 
+  it("sends a room-scoped reorder with item, target index, and latest revision", async () => {
+    const spy = mockFetch(200, { data: { revision: 9 } });
+    await hostedApi.reorder("ABCD2345", "controller-token", "queue-item-8", 0, 8);
+
+    const [url, options] = spy.mock.calls[0];
+    expect(url).toBe("/api/v1/rooms/ABCD2345/queue/reorder");
+    expect(options.method).toBe("PATCH");
+    expect(options.headers.Authorization).toBe("Bearer controller-token");
+    expect(JSON.parse(options.body)).toEqual({ itemId: "queue-item-8", toIndex: 0, revision: 8 });
+  });
+
   it("never puts a token in the URL", async () => {
     const spy = mockFetch(200, { data: {} });
     await hostedApi.room("ABCD2345", "super-secret-token");
