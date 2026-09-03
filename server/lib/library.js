@@ -5,11 +5,12 @@ function timestamp() {
   return new Date().toISOString();
 }
 
-function queueItem(track, requestedBy = "Host") {
+function queueItem(track, requestedBy = "Host", requesterKey = requestedBy) {
   return {
     id: randomUuid(),
     ...track,
     requestedBy: requestedBy || "Host",
+    _requesterKey: requesterKey || requestedBy || "Host",
     addedAt: timestamp(),
     status: "queued",
     failureReason: null
@@ -17,12 +18,68 @@ function queueItem(track, requestedBy = "Host") {
 }
 
 function historyItem(track, outcome, failureReason = null) {
+  const { _requesterKey: _hiddenRequesterKey, ...visibleTrack } = track;
   return {
-    ...track,
+    ...visibleTrack,
     status: outcome,
     failureReason,
     playedAt: timestamp()
   };
+}
+
+/** Remove server-only queue bookkeeping before data leaves the process. */
+export function publicTrack(track) {
+  if (!track) return track;
+  const { _requesterKey: _hiddenRequesterKey, ...visibleTrack } = track;
+  return visibleTrack;
+}
+
+export function publicMutationResult(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return result;
+  return Object.fromEntries(Object.entries(result).map(([key, value]) => {
+    if (["current", "previous", "removed"].includes(key)) return [key, publicTrack(value)];
+    return [key, value];
+  }));
+}
+
+export function rebalanceFairQueue(items, { currentRequester, currentRequesterKey } = {}) {
+  if (!Array.isArray(items) || items.length <= 1) return items;
+  const singerQueues = new Map();
+  const orderOfArrival = [];
+  for (const item of items) {
+    const key = item._requesterKey || item.requestedBy || "Host";
+    if (!singerQueues.has(key)) {
+      singerQueues.set(key, []);
+      orderOfArrival.push(key);
+    }
+    singerQueues.get(key).push(item);
+  }
+
+  const currentKey = currentRequesterKey || currentRequester;
+  const currentIndex = currentKey ? orderOfArrival.indexOf(currentKey) : -1;
+  if (currentIndex >= 0 && orderOfArrival.length > 1) {
+    const nextIndex = (currentIndex + 1) % orderOfArrival.length;
+    orderOfArrival.splice(0, orderOfArrival.length, ...[
+      ...orderOfArrival.slice(nextIndex),
+      ...orderOfArrival.slice(0, nextIndex)
+    ]);
+  }
+
+  const result = [];
+  let round = 0;
+  let hasMore = true;
+  while (hasMore) {
+    hasMore = false;
+    for (const singer of orderOfArrival) {
+      const q = singerQueues.get(singer);
+      if (round < q.length) {
+        result.push(q[round]);
+        hasMore = true;
+      }
+    }
+    round++;
+  }
+  return result;
 }
 
 export function addToQueue(draft, track, options = {}) {
@@ -35,7 +92,7 @@ export function addToQueue(draft, track, options = {}) {
   if (duplicate && !allowDuplicate) {
     throw new AppError(409, "duplicate_track", "เพลงนี้อยู่ในคิวแล้ว");
   }
-  const item = queueItem(track, options.requestedBy);
+  const item = queueItem(track, options.requestedBy, options.requesterKey);
   if (options.playNow) {
     if (draft.current) {
       draft.history.unshift(historyItem(draft.current, "interrupted"));
@@ -46,6 +103,12 @@ export function addToQueue(draft, track, options = {}) {
     draft.current = { ...item, status: "ready" };
   } else {
     draft.queue.push(item);
+    if (draft.settings?.fairQueue) {
+      draft.queue = rebalanceFairQueue(draft.queue, {
+        currentRequester: draft.current?.requestedBy,
+        currentRequesterKey: draft.current?._requesterKey
+      });
+    }
   }
   return item;
 }
@@ -104,7 +167,7 @@ export function playQueueItemNow(draft, itemId) {
 export function queueView(state) {
   return {
     revision: state.revision,
-    current: state.current,
-    items: state.queue
+    current: publicTrack(state.current),
+    items: state.queue.map(publicTrack)
   };
 }

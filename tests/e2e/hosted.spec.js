@@ -18,8 +18,17 @@ test("display opens a room and a phone joins and queues a song", async ({ page, 
   // The join token must ride in the fragment, never the query string.
   expect(hostSession.joinPath.split("#")[0]).toBe("/party");
 
+  // Queue mode is a phone/controller action; the TV display must not expose it.
+  await expect(page.getByRole("button", { name: /คิวผลัดกันร้อง/ })).toHaveCount(0);
+
   // A phone scans the QR and lands on the join screen.
   const phone = await context.newPage();
+  await phone.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, "share", {
+      configurable: true,
+      value: async (payload) => { window.__sharedRoom = payload; }
+    });
+  });
   await phone.goto(hostSession.joinPath);
   await expect(phone.getByLabel("ชื่อของคุณ")).toBeVisible();
   await phone.getByLabel("ชื่อของคุณ").fill("มือถือ QA");
@@ -29,11 +38,43 @@ test("display opens a room and a phone joins and queues a song", async ({ page, 
   // The fragment is stripped once consumed, so the token cannot be re-shared.
   await expect(phone).toHaveURL(/\/party$/);
 
+  const phoneFairQueueButton = phone.getByRole("button", { name: "เปิดคิวผลัดกันร้อง" });
+  await expect(phoneFairQueueButton).toBeVisible();
+  await phoneFairQueueButton.click();
+  await expect(phone.getByRole("button", { name: "คิวผลัดกันร้อง: เปิด" }))
+    .toHaveAttribute("aria-pressed", "true");
+  const hostViewAfterToggle = await request.get(`/api/v1/rooms/${hostSession.roomId}`, {
+    headers: { Authorization: `Bearer ${hostSession.token}` }
+  });
+  expect((await hostViewAfterToggle.json()).data.settings.fairQueue).toBe(true);
+
   const controller = await phone.evaluate(() =>
     JSON.parse(sessionStorage.getItem("karaoke.controllerSession"))
   );
   expect(controller.roomId).toBe(hostSession.roomId);
   expect(controller.token).not.toBe(hostSession.token);
+  expect(controller.joinToken).toBe(decodeURIComponent(hostSession.joinPath.split("&join=")[1]));
+
+  await phone.getByRole("button", { name: "แชร์ลิงก์ห้องเข้า LINE หรือส่งให้เพื่อน" }).click();
+  const shared = await phone.evaluate(() => window.__sharedRoom);
+  expect(shared.url).toContain(`#room=${hostSession.roomId}&join=`);
+  expect(shared.url).toContain(controller.joinToken);
+
+  // The alternate modern mobile UI uses the same controller session and must
+  // keep the toggle on the phone as well.
+  const modernPhone = await context.newPage();
+  await modernPhone.addInitScript((storedSession) => {
+    sessionStorage.setItem("karaoke.controllerSession", JSON.stringify(storedSession));
+  }, controller);
+  await modernPhone.goto("/party?ui=modern");
+  await expect(modernPhone.getByRole("button", { name: "คิวผลัดกันร้อง: เปิด" })).toBeVisible();
+  await modernPhone.getByRole("button", { name: "คิวผลัดกันร้อง: เปิด" }).click();
+  await expect(modernPhone.getByRole("button", { name: "เปิดคิวผลัดกันร้อง" }))
+    .toHaveAttribute("aria-pressed", "false");
+  await modernPhone.getByRole("button", { name: "เปิดคิวผลัดกันร้อง" }).click();
+  await expect(modernPhone.getByRole("button", { name: "คิวผลัดกันร้อง: เปิด" }))
+    .toHaveAttribute("aria-pressed", "true");
+  await modernPhone.close();
 
   // Queue a track through the controller's own credentials.
   const added = await request.post(`/api/v1/rooms/${hostSession.roomId}/queue`, {
@@ -64,7 +105,7 @@ test("display opens a room and a phone joins and queues a song", async ({ page, 
   }
 
   // The phone's queue tab reflects the shared waiting queue.
-  await phone.getByRole("button", { name: /คิว/ }).click();
+  await phone.getByRole("button", { name: /^คิว(?: \(\d+\))?$/ }).click();
   await expect(phone.getByText("เพลงทดสอบ Karaoke")).toBeVisible();
   const queueTitles = phone.locator(".queue-tab ol li strong");
   await expect(queueTitles).toHaveText(waitingTitles);

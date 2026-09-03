@@ -9,6 +9,7 @@ import {
   hostedApi,
   isSessionRevokedError,
   joinUrlFor,
+  partyJoinUrlFor,
   readSession,
   writeSession
 } from "../../src/lib/hosted-api";
@@ -104,6 +105,17 @@ describe("request shaping", () => {
     expect(JSON.parse(options.body).track.videoId).toBe("dQw4w9WgXcQ");
   });
 
+  it("sends a bearer-authenticated fair queue settings patch", async () => {
+    const spy = mockFetch(200, { data: { revision: 4, settings: { fairQueue: true } } });
+    await hostedApi.updateSettings("ABCD2345", "controller-token", { fairQueue: true });
+
+    const [url, options] = spy.mock.calls[0];
+    expect(url).toBe("/api/v1/rooms/ABCD2345/settings");
+    expect(options.method).toBe("PATCH");
+    expect(options.headers.Authorization).toBe("Bearer controller-token");
+    expect(JSON.parse(options.body)).toEqual({ fairQueue: true });
+  });
+
   it("sends a room-scoped reorder with item, target index, and latest revision", async () => {
     const spy = mockFetch(200, { data: { revision: 9 } });
     await hostedApi.reorder("ABCD2345", "controller-token", "queue-item-8", 0, 8);
@@ -161,5 +173,14 @@ describe("join url", () => {
   it("builds an absolute url from the hosted origin", () => {
     expect(joinUrlFor("/party#room=ABCD2345&join=xyz", "https://karaoke.example"))
       .toBe("https://karaoke.example/party#room=ABCD2345&join=xyz");
+  });
+
+  it("does not create an unusable invite when the join token is missing", () => {
+    expect(partyJoinUrlFor("ABCD2345", "", "https://karaoke.example")).toBe("");
+  });
+
+  it("builds a shareable room invite with the join token in the fragment", () => {
+    expect(partyJoinUrlFor("ABCD2345", "secret-token", "https://karaoke.example"))
+      .toBe("https://karaoke.example/party#room=ABCD2345&join=secret-token");
   });
 });

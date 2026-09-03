@@ -102,6 +102,10 @@ export const hostedApi = {
       body: { reason, message }
     }),
 
+  history: (roomId, token) => request(roomPath(roomId, "/history"), { token }),
+  resolveYouTube: (roomId, token, input) =>
+    request(roomPath(roomId, "/youtube/resolve"), { method: "POST", token, body: { input } }),
+
   lyrics: (roomId, token, videoId) =>
     request(roomPath(roomId, `/lyrics/${encodeURIComponent(videoId)}`), { token }),
   searchLyrics: (roomId, token, track, artist = "", album = "") =>
@@ -159,6 +163,13 @@ export function clearSession(key) {
 /** Absolute join URL for the QR code, built from the hosted origin. */
 export function joinUrlFor(joinPath, origin = window.location.origin) {
   return `${origin}${joinPath}`;
+}
+
+/** Build a fresh controller invite URL from the room-scoped join credential. */
+export function partyJoinUrlFor(roomId, joinToken, origin = window.location.origin) {
+  if (!roomId || !joinToken) return "";
+  const fragment = new URLSearchParams({ room: roomId, join: joinToken }).toString();
+  return `${origin}/party#${fragment}`;
 }
 
 export function isSessionRevokedError(codeOrMessage = "") {

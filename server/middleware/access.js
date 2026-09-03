@@ -1,7 +1,7 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import { AppError } from "../lib/errors.js";
-import { toBase64Url } from "../lib/compat.js";
+import { randomUuid, toBase64Url } from "../lib/compat.js";
 
 export function isLoopbackAddress(address = "") {
   const normalized = address.replace(/^::ffff:/, "");
@@ -174,7 +174,12 @@ export class PartySessions {
       Date.now() + this.sessionTtlMs,
       Date.parse(this.repository.secretStatus().partyPinExpiresAt)
     );
-    this.sessions.set(token, { displayName, expiresAt, sessionId: this.sessionId });
+    this.sessions.set(token, {
+      displayName,
+      expiresAt,
+      sessionId: this.sessionId,
+      controllerId: randomUuid()
+    });
     return {
       token,
       displayName,

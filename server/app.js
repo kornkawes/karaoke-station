@@ -10,6 +10,8 @@ import {
   addToQueue,
   advanceQueue,
   playQueueItemNow,
+  publicMutationResult,
+  publicTrack,
   queueView,
   removeQueueItem,
   reorderQueue
@@ -17,6 +19,7 @@ import {
 import { LyricsService } from "./lib/lyrics.js";
 import {
   favoriteSchema,
+  fairQueuePatchSchema,
   generatePartyPin,
   lyricSchema,
   partyJoinSchema,
@@ -61,9 +64,10 @@ function publicPartyView(state) {
   return {
     enabled: state.settings.partyEnabled,
     stationName: state.settings.stationName,
+    settings: { fairQueue: Boolean(state.settings.fairQueue) },
     revision: state.revision,
-    current: state.current,
-    next: state.queue
+    current: publicTrack(state.current),
+    next: state.queue.map(publicTrack)
   };
 }
 
@@ -71,8 +75,8 @@ function hostStateView(state) {
   return {
     revision: state.revision,
     settings: state.settings,
-    current: state.current,
-    queue: state.queue,
+    current: publicTrack(state.current),
+    queue: state.queue.map(publicTrack),
     favorites: state.favorites,
     history: state.history,
     lyrics: state.lyrics
@@ -120,6 +124,7 @@ export async function createApplication({
 
   app.disable("x-powered-by");
   app.set("trust proxy", false);
+  app.set("query parser", "simple");
   app.use(helmet({
     crossOriginEmbedderPolicy: false,
     contentSecurityPolicy: {
@@ -137,7 +142,8 @@ export async function createApplication({
           "https://www.googleapis.com",
           "https://lrclib.net"
         ],
-        styleSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
         workerSrc: ["'self'", "blob:"],
         manifestSrc: ["'self'"],
         upgradeInsecureRequests: null
@@ -285,10 +291,11 @@ export async function createApplication({
     const mutation = await repository.mutate((draft) => addToQueue(draft, input.track, {
       playNow: input.playNow,
       allowDuplicate: input.allowDuplicate,
-      requestedBy: "Host"
+      requestedBy: "Host",
+      requesterKey: "host"
     }));
     emitState(mutation.state, "queue:changed");
-    data(response, { revision: mutation.state.revision, item: mutation.result, queue: queueView(mutation.state) }, 201);
+    data(response, { revision: mutation.state.revision, item: publicTrack(mutation.result), queue: queueView(mutation.state) }, 201);
   }));
 
   app.patch("/api/v1/queue/reorder", requireLoopback, asyncRoute(async (request, response) => {
@@ -298,19 +305,19 @@ export async function createApplication({
       return reorderQueue(draft, input.itemId, input.toIndex);
     });
     emitState(mutation.state, "queue:changed");
-    data(response, { revision: mutation.state.revision, item: mutation.result, queue: queueView(mutation.state) });
+    data(response, { revision: mutation.state.revision, item: publicTrack(mutation.result), queue: queueView(mutation.state) });
   }));
 
   app.delete("/api/v1/queue/:itemId", requireLoopback, asyncRoute(async (request, response) => {
     const mutation = await repository.mutate((draft) => removeQueueItem(draft, request.params.itemId));
     emitState(mutation.state, "queue:changed");
-    data(response, { revision: mutation.state.revision, ...mutation.result, queue: queueView(mutation.state) });
+    data(response, { revision: mutation.state.revision, ...publicMutationResult(mutation.result), queue: queueView(mutation.state) });
   }));
 
   app.post("/api/v1/queue/advance", requireLoopback, asyncRoute(async (request, response) => {
     const mutation = await repository.mutate((draft) => advanceQueue(draft));
     emitState(mutation.state, "queue:changed");
-    data(response, { revision: mutation.state.revision, ...mutation.result, queue: queueView(mutation.state) });
+    data(response, { revision: mutation.state.revision, ...publicMutationResult(mutation.result), queue: queueView(mutation.state) });
   }));
 
   app.post("/api/v1/queue/current/failure", requireLoopback, asyncRoute(async (request, response) => {
@@ -320,7 +327,7 @@ export async function createApplication({
       failureReason: { reason: input.reason, message: input.message ?? "" }
     }));
     emitState(mutation.state, "queue:changed");
-    data(response, { revision: mutation.state.revision, ...mutation.result, queue: queueView(mutation.state) });
+    data(response, { revision: mutation.state.revision, ...publicMutationResult(mutation.result), queue: queueView(mutation.state) });
   }));
 
   app.delete("/api/v1/queue", requireLoopback, asyncRoute(async (_request, response) => {
@@ -530,6 +537,16 @@ export async function createApplication({
 
   const requireParty = partyAuth(partySessions);
 
+  app.patch("/api/v1/party/settings", requireParty, asyncRoute(async (request, response) => {
+    const patch = fairQueuePatchSchema.parse(request.body);
+    const mutation = await repository.mutate((draft) => {
+      draft.settings.fairQueue = patch.fairQueue;
+      return { fairQueue: draft.settings.fairQueue };
+    });
+    emitState(mutation.state, "settings:changed");
+    data(response, { revision: mutation.state.revision, settings: mutation.result });
+  }));
+
   app.get("/api/v1/party/search", requireParty, asyncRoute(async (request, response) => {
     const result = await youtube.search({
       query: request.query.q,
@@ -557,18 +574,19 @@ export async function createApplication({
     const mutation = await repository.mutate((draft) => addToQueue(draft, input.track, {
       playNow: false,
       allowDuplicate: input.allowDuplicate,
-      requestedBy: request.partySession.displayName
+      requestedBy: request.partySession.displayName,
+      requesterKey: request.partySession.controllerId || request.partySession.displayName
     }));
     emitState(mutation.state, "queue:changed");
     const action = emitPartyAction({
       actor: request.partySession.displayName,
       action: "add",
-      track: mutation.result,
+      track: publicTrack(mutation.result),
       state: mutation.state
     });
     data(response, {
       revision: mutation.state.revision,
-      item: mutation.result,
+      item: publicTrack(mutation.result),
       action,
       queue: queueView(mutation.state),
       position: mutation.state.current?.id === mutation.result.id
@@ -588,12 +606,12 @@ export async function createApplication({
     const action = emitPartyAction({
       actor: request.partySession.displayName,
       action: "remove",
-      track: removed,
+      track: publicTrack(removed),
       state: mutation.state
     });
     data(response, {
       revision: mutation.state.revision,
-      ...mutation.result,
+      ...publicMutationResult(mutation.result),
       action,
       queue: queueView(mutation.state)
     });
@@ -612,12 +630,12 @@ export async function createApplication({
     const action = emitPartyAction({
       actor: request.partySession.displayName,
       action: "reorder",
-      track: mutation.result,
+      track: publicTrack(mutation.result),
       state: mutation.state
     });
     data(response, {
       revision: mutation.state.revision,
-      item: mutation.result,
+      item: publicTrack(mutation.result),
       action,
       queue: queueView(mutation.state)
     });
@@ -636,12 +654,12 @@ export async function createApplication({
     const action = emitPartyAction({
       actor: request.partySession.displayName,
       action: "skip",
-      track: mutation.result.previous,
+      track: publicTrack(mutation.result.previous),
       state: mutation.state
     });
     data(response, {
       revision: mutation.state.revision,
-      ...mutation.result,
+      ...publicMutationResult(mutation.result),
       action,
       queue: queueView(mutation.state)
     });
@@ -657,12 +675,12 @@ export async function createApplication({
     const action = emitPartyAction({
       actor: request.partySession.displayName,
       action: "play_now",
-      track: mutation.result.current,
+      track: publicTrack(mutation.result.current),
       state: mutation.state
     });
     data(response, {
       revision: mutation.state.revision,
-      ...mutation.result,
+      ...publicMutationResult(mutation.result),
       action,
       queue: queueView(mutation.state)
     });
@@ -678,7 +696,7 @@ export async function createApplication({
         }
       }
     }));
-    app.get("*", (request, response, next) => {
+    app.get("/{*splat}", (request, response, next) => {
       if (request.path.startsWith("/api/") || request.path.startsWith("/socket.io/")) return next();
       response.sendFile(path.join(distDir, "index.html"));
     });

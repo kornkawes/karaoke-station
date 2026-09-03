@@ -85,6 +85,9 @@ export const karaokeApi = {
   joinParty: (credential, displayName, credentialType = "pin") =>
     request("/party/join", { method: "POST", body: JSON.stringify({ displayName, [credentialType]: credential }) }),
   partyStatus: () => request("/party/status"),
+  partySettings: (patch, token) => request("/party/settings", {
+    method: "PATCH", headers: bearer(token), body: JSON.stringify(patch)
+  }),
   partySearch: (searchText, mode = "both", token) =>
     request(`/party/search?${query({ q: searchText, mode })}`, { headers: bearer(token) }),
   partyQueue: (track, token) =>
@@ -107,15 +110,28 @@ function bearer(token) {
   return { Authorization: `Bearer ${token || ""}` };
 }
 
+const CLASSIFICATION_TO_BADGE = {
+  karaoke: "Karaoke",
+  instrumental: "Instrumental",
+  backing_track: "Backing Track"
+};
+const BADGE_TO_CLASSIFICATION = Object.fromEntries(
+  Object.entries(CLASSIFICATION_TO_BADGE).map(([classification, badge]) => [badge, classification])
+);
+
 export function apiTrack(track) {
+  const classification = CLASSIFICATION_TO_BADGE[track?.classification]
+    ? track.classification
+    : BADGE_TO_CLASSIFICATION[track?.badge] || null;
+  const badge = classification ? CLASSIFICATION_TO_BADGE[classification] : null;
   return {
     videoId: track.videoId,
     title: track.title,
     channelTitle: track.channelTitle || "",
     ...(track.thumbnailUrl ? { thumbnailUrl: track.thumbnailUrl } : {}),
     ...(track.duration ? { duration: track.duration } : {}),
-    ...(track.classification ? { classification: track.classification } : {}),
-    ...(track.badge ? { badge: track.badge } : {})
+    ...(classification ? { classification } : {}),
+    ...(badge ? { badge } : {})
   };
 }
 

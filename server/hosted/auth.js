@@ -1,4 +1,5 @@
 import { AppError } from "../lib/errors.js";
+import { randomUuid } from "../lib/compat.js";
 import { CONTROLLER_TTL_MS, generateToken, safeEqual } from "./rooms.js";
 
 /**
@@ -63,7 +64,12 @@ export function joinRoom(room, { joinToken, displayName }, { now = Date.now() } 
   }
   const token = generateToken();
   const expiresAt = Math.min(now + CONTROLLER_TTL_MS, room.expiresAt);
-  room.controllers.set(token, { displayName, expiresAt, joinedAt: now });
+  room.controllers.set(token, {
+    displayName,
+    controllerId: randomUuid(),
+    expiresAt,
+    joinedAt: now
+  });
   return {
     token,
     displayName,

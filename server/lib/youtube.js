@@ -12,6 +12,7 @@ const YOUTUBE_HOSTS = new Set([
   "youtu.be",
   "www.youtube-nocookie.com"
 ]);
+const THUMBNAIL_HOSTS = new Set(["i.ytimg.com", "img.youtube.com"]);
 const MODE_SUFFIX = {
   none: "",
   karaoke: " karaoke",
@@ -33,6 +34,24 @@ const NEGATIVE_TITLE = /official\s+(?:music\s+video|mv)|reaction|vocal\s+cover|l
 
 function isYouTubeHost(hostname) {
   return YOUTUBE_HOSTS.has(hostname.toLowerCase());
+}
+
+function thumbnailUrl(value, videoId) {
+  const fallback = `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
+  try {
+    const url = new URL(String(value || fallback));
+    if (url.protocol === "https:" && THUMBNAIL_HOSTS.has(url.hostname.toLowerCase())) {
+      return url.toString();
+    }
+  } catch {
+    // Use the known-safe YouTube thumbnail below.
+  }
+  return fallback;
+}
+
+function text(value, fallback = "", maxLength = 300) {
+  const valueText = String(value ?? fallback).trim();
+  return valueText.slice(0, maxLength) || fallback;
 }
 
 export function parseYouTubeInput(input) {
@@ -125,6 +144,7 @@ export class YouTubeService {
     this.timeoutMs = timeoutMs;
     this.cacheTtlMs = cacheTtlMs;
     this.cache = new Map();
+    this.resolveInFlight = new Map();
   }
 
   async search({ query, mode = "both", maxResults = 12 }) {
@@ -172,7 +192,7 @@ export class YouTubeService {
     if (!ids.length) {
       const value = { query: trimmed, mode, results: [] };
       this.cache.set(cacheKey, { value, expiresAt: Date.now() + this.cacheTtlMs });
-      if (this.cache.size > 200) this.cache.delete(this.cache.keys().next().value);
+      if (this.cache.size > 1_000) this.cache.delete(this.cache.keys().next().value);
       return { ...cloneJson(value), cached: false };
     }
 
@@ -197,14 +217,14 @@ export class YouTubeService {
           : CLASSIFICATION[mode]?.classification;
         if (!classification || (expected && classification.classification !== expected)) return [];
       }
-      const thumbnail =
-        item.snippet?.thumbnails?.medium?.url ??
-        item.snippet?.thumbnails?.default?.url ??
-        `https://i.ytimg.com/vi/${id}/mqdefault.jpg`;
+      const thumbnail = thumbnailUrl(
+        item.snippet?.thumbnails?.medium?.url ?? item.snippet?.thumbnails?.default?.url,
+        id
+      );
       return [{
         videoId: id,
-        title: item.snippet?.title ?? "Untitled",
-        channelTitle: item.snippet?.channelTitle ?? "",
+        title: text(item.snippet?.title, "Untitled"),
+        channelTitle: text(item.snippet?.channelTitle, "", 200),
         thumbnailUrl: thumbnail,
         duration: item.contentDetails?.duration ?? null,
         ...(classification ?? { classification: null, badge: null }),
@@ -214,11 +234,103 @@ export class YouTubeService {
     });
     const value = { query: trimmed, mode, results };
     this.cache.set(cacheKey, { value, expiresAt: Date.now() + this.cacheTtlMs });
-    if (this.cache.size > 200) this.cache.delete(this.cache.keys().next().value);
+    if (this.cache.size > 1000) this.cache.delete(this.cache.keys().next().value);
     return {
       ...cloneJson(value),
       results: cloneJson(value.results.slice(0, count)),
       cached: false
     };
+  }
+
+  async resolveVideo({ input }) {
+    const { videoId, canonicalUrl } = parseYouTubeInput(input);
+    const cacheKey = `video:${videoId}`;
+    const cached = this.cache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { ...cloneJson(cached.value), cached: true };
+    }
+
+    const inFlight = this.resolveInFlight.get(cacheKey);
+    if (inFlight) {
+      const value = await inFlight;
+      return { ...cloneJson(value), cached: true };
+    }
+
+    const resolution = (async () => {
+      const apiKey = this.getApiKey ? this.getApiKey() : null;
+      let apiError = null;
+
+      if (apiKey) {
+        try {
+          const videosUrl = new URL(VIDEOS_ENDPOINT);
+          videosUrl.search = new URLSearchParams({
+            part: "snippet,contentDetails,status",
+            id: videoId,
+            key: apiKey
+          });
+          const videosBody = await fetchJson(this.fetchImpl, videosUrl, { timeoutMs: this.timeoutMs });
+          const item = videosBody?.items?.[0];
+          if (!item || item.status?.embeddable === false || item.status?.privacyStatus !== "public") {
+            throw new AppError(404, "youtube_video_unavailable", "วิดีโอนี้ไม่พร้อมให้เล่นในห้องนี้");
+          }
+          const classification = classifyKaraokeTrack({
+            title: item.snippet?.title,
+            description: item.snippet?.description
+          });
+          return {
+            videoId,
+            title: text(item.snippet?.title, "YouTube Video"),
+            channelTitle: text(item.snippet?.channelTitle, "", 200),
+            thumbnailUrl: thumbnailUrl(
+              item.snippet?.thumbnails?.medium?.url ?? item.snippet?.thumbnails?.default?.url,
+              videoId
+            ),
+            duration: item.contentDetails?.duration ?? null,
+            ...(classification ?? { classification: "karaoke", badge: "Karaoke" }),
+            embeddable: true,
+            canonicalUrl
+          };
+        } catch (error) {
+          // Quota, credential, or transient errors can still use zero-quota
+          // oEmbed. A successful API response that says the video is private or
+          // unembeddable must never be bypassed by that fallback.
+          if (error?.code === "youtube_video_unavailable") throw error;
+          apiError = error;
+        }
+      }
+
+      try {
+        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(canonicalUrl)}&format=json`;
+        const oembedData = await fetchJson(this.fetchImpl, oembedUrl, { timeoutMs: this.timeoutMs });
+        if (!oembedData?.title) {
+          throw new AppError(404, "youtube_video_unavailable", "วิดีโอนี้ไม่พร้อมให้เล่นในห้องนี้");
+        }
+        const classification = classifyKaraokeTrack({ title: oembedData.title });
+        return {
+          videoId,
+          title: text(oembedData.title, "YouTube Video"),
+          channelTitle: text(oembedData.author_name, "YouTube", 200),
+          thumbnailUrl: thumbnailUrl(oembedData.thumbnail_url, videoId),
+          duration: null,
+          ...(classification ?? { classification: "karaoke", badge: "Karaoke" }),
+          embeddable: true,
+          canonicalUrl
+        };
+      } catch (error) {
+        // Preserve the useful API error (quota/credentials/timeout) when both
+        // metadata sources fail, without exposing upstream response data.
+        throw apiError || error;
+      }
+    })();
+
+    this.resolveInFlight.set(cacheKey, resolution);
+    try {
+      const track = await resolution;
+      this.cache.set(cacheKey, { value: track, expiresAt: Date.now() + this.cacheTtlMs });
+      if (this.cache.size > 1_000) this.cache.delete(this.cache.keys().next().value);
+      return { ...cloneJson(track), cached: false };
+    } finally {
+      if (this.resolveInFlight.get(cacheKey) === resolution) this.resolveInFlight.delete(cacheKey);
+    }
   }
 }

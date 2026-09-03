@@ -51,6 +51,8 @@ describe("security and config", () => {
     const response = await request(runtime.app).get("/api/v1/health").expect(200);
     expect(response.headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
     expect(response.headers["content-security-policy"]).toContain("https://www.youtube.com");
+    expect(response.headers["content-security-policy"]).toContain("https://fonts.googleapis.com");
+    expect(response.headers["content-security-policy"]).toContain("https://fonts.gstatic.com");
     expect(response.headers["content-security-policy"]).not.toContain("upgrade-insecure-requests");
   });
 
@@ -353,6 +355,29 @@ describe("Party Mode", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({ track: videoB })
       .expect(401);
+  });
+
+  it("lets an authenticated party controller toggle fair queue and exposes only that setting", async () => {
+    await jsonMutation("post", "/api/v1/party/session/start").send({}).expect(200);
+    const party = await request(runtime.app).get("/api/v1/party").expect(200);
+    const joined = await jsonMutation("post", "/api/v1/party/join")
+      .send({ pin: party.body.data.pin, displayName: "มือถือ" })
+      .expect(201);
+    const auth = { Authorization: `Bearer ${joined.body.data.token}` };
+
+    const enabled = await jsonMutation("patch", "/api/v1/party/settings")
+      .set(auth)
+      .send({ fairQueue: true })
+      .expect(200);
+    expect(enabled.body.data.settings).toEqual({ fairQueue: true });
+
+    const status = await request(runtime.app).get("/api/v1/party/status").expect(200);
+    expect(status.body.data.settings).toEqual({ fairQueue: true });
+
+    await jsonMutation("patch", "/api/v1/party/settings")
+      .set(auth)
+      .send({ fairQueue: "yes", partyEnabled: false })
+      .expect(400);
   });
 
   it("rate-limits repeated PIN guesses per IP", async () => {

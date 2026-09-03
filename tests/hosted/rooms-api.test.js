@@ -18,6 +18,12 @@ const videoB = {
   channelTitle: "Channel",
   thumbnailUrl: "https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg"
 };
+const videoC = {
+  videoId: "zyxwvutsrqp",
+  title: "Third song",
+  channelTitle: "Channel",
+  thumbnailUrl: "https://i.ytimg.com/vi/zyxwvutsrqp/mqdefault.jpg"
+};
 
 let runtime;
 let clock;
@@ -164,9 +170,20 @@ describe("role separation", () => {
     expect(runtime.store.get(room.roomId)).toBeDefined();
   });
 
-  it("does not let a controller change room settings", async () => {
+  it("lets a controller toggle fair queue but keeps other settings host-only", async () => {
     const room = await createRoom();
     const controller = await joinRoom(room);
+
+    const enabled = await api("patch", `/api/v1/rooms/${room.roomId}/settings`)
+      .set("Authorization", `Bearer ${controller.token}`)
+      .send({ fairQueue: true })
+      .expect(200);
+    expect(enabled.body.data.settings).toEqual({ fairQueue: true });
+
+    const memberView = await api("get", `/api/v1/rooms/${room.roomId}/queue`)
+      .set("Authorization", `Bearer ${controller.token}`)
+      .expect(200);
+    expect(memberView.body.data.settings).toEqual({ fairQueue: true });
 
     await api("patch", `/api/v1/rooms/${room.roomId}/settings`)
       .set("Authorization", `Bearer ${controller.token}`)
@@ -390,6 +407,39 @@ describe("queue semantics", () => {
       .expect(200);
     expect(view.body.data.current.videoId).toBe(videoB.videoId);
   });
+
+  it("rebalances the queue after enabling fair mode and keeps requester identity private", async () => {
+    const room = await createRoom();
+    const alice = await joinRoom(room, "Alice");
+    const bob = await joinRoom(room, "Bob");
+
+    await api("patch", `/api/v1/rooms/${room.roomId}/settings`)
+      .set("Authorization", `Bearer ${room.hostToken}`)
+      .send({ fairQueue: true })
+      .expect(200);
+    await addTrack(room, alice.token, videoA).expect(201);
+    await addTrack(room, bob.token, videoB).expect(201);
+    await addTrack(room, alice.token, videoC).expect(201);
+
+    const view = await api("get", `/api/v1/rooms/${room.roomId}/queue`)
+      .set("Authorization", `Bearer ${room.hostToken}`)
+      .expect(200);
+    expect(view.body.data.queue.map((item) => item.videoId)).toEqual([videoB.videoId, videoC.videoId]);
+    expect(view.body.data.queue.map((item) => item.requestedBy)).toEqual(["Bob", "Alice"]);
+    expect(JSON.stringify(view.body)).not.toContain("_requesterKey");
+    expect(JSON.stringify(view.body)).not.toContain(bob.token);
+  });
+
+  it("returns a safe upstream error when direct-link metadata cannot be verified", async () => {
+    const room = await createRoom();
+    const response = await api("post", `/api/v1/rooms/${room.roomId}/youtube/resolve`)
+      .set("Authorization", `Bearer ${room.hostToken}`)
+      .send({ input: "dQw4w9WgXcQ" });
+
+    expect(response.status).toBe(502);
+    expect(response.body.error.code).toBe("youtube_unavailable");
+    expect(response.body.data).toBeUndefined();
+  });
 });
 
 describe("secret non-disclosure", () => {
@@ -481,6 +531,8 @@ describe("transport hardening", () => {
     const response = await api("get", "/api/v1/health").expect(200);
     expect(response.headers["strict-transport-security"]).toContain("max-age=15552000");
     expect(response.headers["content-security-policy"]).toContain("frame-ancestors 'none'");
+    expect(response.headers["content-security-policy"]).toContain("https://fonts.googleapis.com");
+    expect(response.headers["content-security-policy"]).toContain("https://fonts.gstatic.com");
     expect(response.headers["content-security-policy"]).toContain("upgrade-insecure-requests");
   });
 

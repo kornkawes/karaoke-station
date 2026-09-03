@@ -1,7 +1,7 @@
 # Deploy KaraokeStation (Render free tier)
 
 เอกสารนี้เป็น runbook สำหรับ preview ส่วนตัวบน Render free tier
-ห้าม deploy จนกว่า CI, Cara QA และ Vera security gate จะผ่าน และยืนยันว่า API key เก่าถูก revoke แล้ว
+ห้าม deploy จนกว่า automated checks และ security checklist จะผ่าน และยืนยันว่า API key เก่าถูก revoke แล้ว
 
 ## ทำไมต้อง Render ไม่ใช่ Netlify/Vercel
 
@@ -76,6 +76,10 @@ Render จะให้ URL แบบ `https://karaoke-station-xxxx.onrender.com`
 - [ ] เพลงจบ → เล่นเพลงถัดไปเองครั้งเดียว
 - [ ] มือถือเครื่องที่ 2 และ 3 สแกน QR เดียวกัน → เห็นคิวตรงกันทุกเครื่อง
 - [ ] กด Skip จากมือถือ → จอเปลี่ยนเพลง
+- [ ] เปิด "คิวผลัดกันร้อง" จากจอ → เพลงของคนถัดไปไม่ถูกคนเดียวครองคิว
+- [ ] ปุ่ม "แชร์ห้อง" สร้างลิงก์ที่มี `room` และ `join` ใน fragment แล้วเปิดจาก browser ใหม่ได้
+- [ ] วาง YouTube URL ที่เล่นไม่ได้ → ระบบแจ้งข้อผิดพลาดและไม่สร้างเพลงปลอมเข้าคิว
+- [ ] เปิดแท็บ "ประวัติ" หลัง Skip/เพลงจบ → รายการล่าสุดปรากฏโดยไม่ต้อง reload
 - [ ] กด "สร้างห้องใหม่" → มือถือเดิมหลุด ต้องสแกนใหม่
 
 ข้อไหนไม่ผ่าน ให้หยุดใช้งานและบันทึก URL, เวลา, browser และขั้นตอนที่ทำก่อนเกิดปัญหา
@@ -104,4 +108,4 @@ Render จะให้ URL แบบ `https://karaoke-station-xxxx.onrender.com`
 - API key เก่าที่เคยรั่วต้อง revoke ให้เรียบร้อยก่อนสร้าง key ใหม่
 - key ใหม่ต้องจำกัดเฉพาะ YouTube Data API v3 และจำกัดตาม server IP เมื่อ provider รองรับ
 - ใส่ key ใหม่ผ่าน Render secret prompt เท่านั้น ห้ามวางใน chat, `.env`, source หรือ GitHub
-- `.secrets/youtube-api-key.txt` ยังมีคีย์เก่าอยู่ ควรลบหลัง rotate เสร็จ
+- สำเนา local plaintext `.secrets/youtube-api-key.txt` ถูกลบแล้ว แต่ต้อง revoke/rotate คีย์เดิมใน Google Cloud ก่อน deploy

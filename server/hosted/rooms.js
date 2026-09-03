@@ -43,7 +43,8 @@ export function defaultRoomState() {
       defaultLyricsMode: "video",
       singleKeyShortcuts: true,
       allowDuplicate: true,
-      lrclibEnabled: true
+      lrclibEnabled: true,
+      fairQueue: false
     },
     current: null,
     queue: [],

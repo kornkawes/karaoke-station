@@ -25,6 +25,29 @@ describe("frontend API adapters", () => {
     expect(normalizeQueue({ revision: 3, current: null, items: [track] }).items).toHaveLength(1);
   });
 
+  it("keeps classification and badge paired when an old favorite only has a badge", () => {
+    expect(apiTrack({
+      videoId: "dQw4w9WgXcQ",
+      title: "เพลงโปรด",
+      badge: "Karaoke"
+    })).toMatchObject({
+      classification: "karaoke",
+      badge: "Karaoke"
+    });
+  });
+
+  it("repairs a mismatched UI pair before sending it to the strict server schema", () => {
+    expect(apiTrack({
+      videoId: "dQw4w9WgXcQ",
+      title: "เพลง",
+      classification: "instrumental",
+      badge: "Karaoke"
+    })).toMatchObject({
+      classification: "instrumental",
+      badge: "Instrumental"
+    });
+  });
+
   it("accepts a host-state queue array as well as the queue endpoint shape", () => {
     const item = { id: "5c9f5b3f-4b1d-4333-b3c1-43b8d61f65f3", videoId: "dQw4w9WgXcQ", title: "เพลง" };
     const normalized = normalizeQueue({ revision: 4, current: item, queue: [item] });

@@ -10,13 +10,17 @@ import {
   addToQueue,
   advanceQueue,
   playQueueItemNow,
+  publicMutationResult,
+  publicTrack,
   queueView,
+  rebalanceFairQueue,
   removeQueueItem,
   reorderQueue
 } from "../lib/library.js";
 import { LyricsService } from "../lib/lyrics.js";
 import {
   lyricSchema,
+  fairQueuePatchSchema,
   queueAddSchema,
   queueFailureSchema,
   reorderSchema,
@@ -55,8 +59,9 @@ export function roomView(room) {
     roomId: room.roomId,
     revision: room.state.revision,
     stationName: room.state.settings.stationName,
-    current: room.state.current,
-    queue: room.state.queue,
+    settings: { fairQueue: Boolean(room.state.settings.fairQueue) },
+    current: publicTrack(room.state.current),
+    queue: room.state.queue.map(publicTrack),
     expiresAt: new Date(room.expiresAt).toISOString()
   };
 }
@@ -132,6 +137,7 @@ export async function createHostedApplication({
   const app = express();
   const actionLimiter = new TokenRateLimiter({ limit: 30, windowMs: 60_000, now });
   const hostLimiter = new TokenRateLimiter({ limit: 120, windowMs: 60_000, now });
+  const resolveRoomLimiter = new TokenRateLimiter({ limit: 30, windowMs: 60_000, now });
   const hostAuth = requireHost(store, { rateLimiter: hostLimiter });
   const memberAuth = requireMember(store, {
     rateLimiter: actionLimiter,
@@ -140,6 +146,9 @@ export async function createHostedApplication({
   });
 
   app.disable("x-powered-by");
+  // Query values are small, flat strings here. The simple parser avoids the
+  // legacy qs dependency surface and keeps request.query predictable.
+  app.set("query parser", "simple");
   // Never trust proxy headers by default: X-Forwarded-For would otherwise let a
   // client forge its own source IP and defeat every IP-based rate limit below.
   app.set("trust proxy", trustedProxyHops(env.TRUSTED_PROXY) || false);
@@ -154,7 +163,8 @@ export async function createHostedApplication({
         frameSrc: ["'self'", "https://www.youtube.com", "https://www.youtube-nocookie.com"],
         imgSrc: ["'self'", "data:", "https://i.ytimg.com", "https://img.youtube.com"],
         connectSrc: ["'self'", "wss:", "https://www.googleapis.com", "https://lrclib.net"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
         workerSrc: ["'self'", "blob:"],
         manifestSrc: ["'self'"],
         frameAncestors: ["'none'"],
@@ -221,6 +231,16 @@ export async function createHostedApplication({
     }
   });
 
+  const resolveLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: 30,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    handler: (_request, _response, next) => {
+      next(new AppError(429, "resolve_rate_limited", "วางลิงก์บ่อยเกินไป กรุณารอสักครู่"));
+    }
+  });
+
   app.use(express.json({ limit: "64kb", strict: true }));
 
   app.use("/api", (request, _response, next) => {
@@ -247,7 +267,7 @@ export async function createHostedApplication({
       roomId: room.roomId,
       actor,
       action,
-      track: track ?? null,
+      track: publicTrack(track ?? null),
       revision: room.state.revision,
       timestamp: new Date(now()).toISOString()
     };
@@ -318,14 +338,33 @@ export async function createHostedApplication({
     });
   });
 
-  app.patch("/api/v1/rooms/:roomId/settings", hostAuth, asyncRoute(async (request, response) => {
+  app.patch("/api/v1/rooms/:roomId/settings", memberAuth, asyncRoute(async (request, response) => {
     const patch = settingsPatchSchema.parse(request.body);
+    if (
+      request.actor.role === "controller" &&
+      Object.keys(patch).some((key) => key !== "fairQueue")
+    ) {
+      throw new AppError(403, "controller_settings_forbidden", "มือถือเปลี่ยนได้เฉพาะโหมดคิวผลัดกันร้อง");
+    }
+    const safePatch = request.actor.role === "controller"
+      ? fairQueuePatchSchema.parse(patch)
+      : patch;
     const mutation = await store.mutate(request.room.roomId, (draft) => {
-      Object.assign(draft.settings, patch);
+      const wasFairQueue = Boolean(draft.settings.fairQueue);
+      Object.assign(draft.settings, safePatch);
+      if (safePatch.fairQueue === true && !wasFairQueue) {
+        draft.queue = rebalanceFairQueue(draft.queue, {
+          currentRequester: draft.current?.requestedBy,
+          currentRequesterKey: draft.current?._requesterKey
+        });
+      }
       return draft.settings;
     });
     emitRoom(mutation.room, "room:changed");
-    data(response, { revision: mutation.state.revision, settings: mutation.result });
+    const settings = request.actor.role === "controller"
+      ? { fairQueue: Boolean(mutation.result.fairQueue) }
+      : mutation.result;
+    data(response, { revision: mutation.state.revision, settings });
   }));
 
   // ---- Join (public, join token only) ---------------------------------------
@@ -383,6 +422,36 @@ export async function createHostedApplication({
     }
   );
 
+  app.post(
+    "/api/v1/rooms/:roomId/youtube/resolve",
+    resolveLimiter,
+    memberAuth,
+    (request, _response, next) => {
+      try {
+        resolveRoomLimiter.consume(request.room.roomId);
+        next();
+      } catch (error) {
+        next(error);
+      }
+    },
+    asyncRoute(async (request, response) => {
+      const input = request.body?.input;
+      const track = await youtube.resolveVideo({ input });
+      data(response, track);
+    })
+  );
+
+  app.get(
+    "/api/v1/rooms/:roomId/history",
+    memberAuth,
+    (request, response) => {
+      data(response, {
+        history: (request.room.state.history || []).slice(0, 50),
+        revision: request.room.state.revision
+      });
+    }
+  );
+
   // ---- Queue mutations (host or controller share the same permissions) -------
 
   app.post(
@@ -394,7 +463,8 @@ export async function createHostedApplication({
       const mutation = await store.mutate(request.room.roomId, (draft) => addToQueue(draft, input.track, {
         playNow: request.actor.role === "host" ? input.playNow : false,
         allowDuplicate: input.allowDuplicate,
-        requestedBy: actorName
+        requestedBy: actorName,
+        requesterKey: request.actor.role === "host" ? "host" : request.actor.controllerId
       }));
       emitRoom(mutation.room, "room:changed");
       const action = emitAction(mutation.room, {
@@ -404,7 +474,7 @@ export async function createHostedApplication({
       });
       data(response, {
         revision: mutation.state.revision,
-        item: mutation.result,
+        item: publicTrack(mutation.result),
         action,
         queue: queueView(mutation.state)
       }, 201);
@@ -429,7 +499,7 @@ export async function createHostedApplication({
       });
       data(response, {
         revision: mutation.state.revision,
-        ...mutation.result,
+        ...publicMutationResult(mutation.result),
         action,
         queue: queueView(mutation.state)
       });
@@ -456,7 +526,7 @@ export async function createHostedApplication({
       });
       data(response, {
         revision: mutation.state.revision,
-        item: mutation.result,
+        item: publicTrack(mutation.result),
         action,
         queue: queueView(mutation.state)
       });
@@ -483,7 +553,7 @@ export async function createHostedApplication({
       });
       data(response, {
         revision: mutation.state.revision,
-        ...mutation.result,
+        ...publicMutationResult(mutation.result),
         action,
         queue: queueView(mutation.state)
       });
@@ -507,7 +577,7 @@ export async function createHostedApplication({
       });
       data(response, {
         revision: mutation.state.revision,
-        ...mutation.result,
+        ...publicMutationResult(mutation.result),
         action,
         queue: queueView(mutation.state)
       });
@@ -530,7 +600,7 @@ export async function createHostedApplication({
       emitRoom(mutation.room, "room:changed");
       data(response, {
         revision: mutation.state.revision,
-        ...mutation.result,
+        ...publicMutationResult(mutation.result),
         queue: queueView(mutation.state)
       });
     })
@@ -548,7 +618,7 @@ export async function createHostedApplication({
       emitRoom(mutation.room, "room:changed");
       data(response, {
         revision: mutation.state.revision,
-        ...mutation.result,
+        ...publicMutationResult(mutation.result),
         queue: queueView(mutation.state)
       });
     })
@@ -622,7 +692,7 @@ export async function createHostedApplication({
         }
       }
     }));
-    app.get("*", (request, response, next) => {
+    app.get("/{*splat}", (request, response, next) => {
       if (request.path.startsWith("/api/") || request.path.startsWith("/socket.io/")) return next();
       response.sendFile(path.join(distDir, "index.html"));
     });

@@ -8,6 +8,7 @@ test("display is clean, creates a fragment-only launch session, and controller j
   await expect(page.getByRole("button", { name: "เปิดการตั้งค่า QR" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "ค้นหาเพลง" })).toHaveCount(0);
   await expect(page.locator(".queue-tab")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /คิวผลัดกันร้อง/ })).toHaveCount(0);
 
   const session = await request.post("/api/v1/party/session/start", { data: {} });
   expect(session.ok()).toBeTruthy();
@@ -23,6 +24,12 @@ test("display is clean, creates a fragment-only launch session, and controller j
   await expect(page.getByRole("heading", { name: "ค้นหาเพลง" })).toBeVisible();
   await expect(page).toHaveURL(/\/party$/);
 
+  const fairQueueButton = page.getByRole("button", { name: "เปิดคิวผลัดกันร้อง" });
+  await expect(fairQueueButton).toBeVisible();
+  await fairQueueButton.click();
+  await expect(page.getByRole("button", { name: "คิวผลัดกันร้อง: เปิด" }))
+    .toHaveAttribute("aria-pressed", "true");
+
   const token = await page.evaluate(() => sessionStorage.getItem("karaokeLaunchToken"));
   const headers = { Authorization: `Bearer ${token}` };
   const first = { videoId: "dQw4w9WgXcQ", title: "เพลงแรก Karaoke", channelTitle: "QA", classification: "karaoke", badge: "Karaoke" };
@@ -30,7 +37,7 @@ test("display is clean, creates a fragment-only launch session, and controller j
   expect((await request.post(`${partyBase}/api/v1/party/queue`, { headers, data: { track: first } })).ok()).toBeTruthy();
   expect((await request.post(`${partyBase}/api/v1/party/queue`, { headers, data: { track: second } })).ok()).toBeTruthy();
   await expect(page.getByText("เพลงแรก Karaoke")).toBeVisible();
-  await page.getByRole("button", { name: /คิว/ }).click();
+  await page.getByRole("button", { name: /^คิว(?: \(\d+\)| \d+)?$/ }).click();
   await expect(page.getByText("เพลงถัดไป Instrumental")).toBeVisible();
   await page.getByRole("button", { name: "Skip" }).click();
   await expect(page.getByRole("dialog", { name: "ข้ามเพลงนี้?" })).toBeVisible();

@@ -1,5 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, ListMusic, LoaderCircle, Maximize2, Mic2, Minimize2, Music2, Play, Plus, Search, SkipForward, Trash2, Volume2, Wifi, WifiOff, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  History,
+  ListMusic,
+  LoaderCircle,
+  Maximize2,
+  Mic2,
+  Minimize2,
+  Music2,
+  Play,
+  Plus,
+  RotateCcw,
+  Search,
+  Share2,
+  SkipForward,
+  Star,
+  Trash2,
+  Volume2,
+  Wifi,
+  WifiOff,
+  X
+} from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import {
   CONTROLLER_STORAGE_KEY,
@@ -10,6 +33,7 @@ import {
   hostedApi,
   isSessionRevokedError,
   joinUrlFor,
+  partyJoinUrlFor,
   normalizeQueue,
   normalizeTrack,
   readSession,
@@ -18,15 +42,88 @@ import {
 import { loadYouTubeIframeApi } from "./lib/youtube";
 import "./hosted.css";
 
-const emptyRoomState = { revision: 0, current: null, queue: [], stationName: "KaraokeStation" };
+const emptyRoomState = {
+  revision: 0,
+  current: null,
+  queue: [],
+  stationName: "KaraokeStation",
+  settings: { fairQueue: false }
+};
 
-function viewToState(view) {
+const FAVORITES_STORAGE_KEY = "karaoke.favoriteTracks";
+const FAVORITE_CLASSIFICATIONS = {
+  karaoke: "Karaoke",
+  instrumental: "Instrumental",
+  backing_track: "Backing Track"
+};
+const FAVORITE_BADGES = Object.fromEntries(
+  Object.entries(FAVORITE_CLASSIFICATIONS).map(([classification, badge]) => [badge, classification])
+);
+const YOUTUBE_THUMBNAIL_HOSTS = new Set(["i.ytimg.com", "img.youtube.com"]);
+
+function safeFavoriteThumbnail(value, videoId) {
+  const fallback = `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
+  try {
+    const url = new URL(String(value || fallback));
+    if (url.protocol === "https:" && YOUTUBE_THUMBNAIL_HOSTS.has(url.hostname.toLowerCase())) {
+      return url.toString();
+    }
+  } catch {
+    // Invalid stored values fall back to the known-safe YouTube thumbnail.
+  }
+  return fallback;
+}
+
+export function normalizeFavorite(track) {
+  if (!track || typeof track !== "object") return null;
+  const videoId = String(track.videoId || "");
+  const title = String(track.title || "").trim().slice(0, 300);
+  if (!/^[A-Za-z0-9_-]{11}$/.test(videoId) || !title) return null;
+  const classification = FAVORITE_CLASSIFICATIONS[track.classification]
+    ? track.classification
+    : FAVORITE_BADGES[track.badge] || null;
+  return {
+    videoId,
+    title,
+    channelTitle: String(track.channelTitle || "").trim().slice(0, 200),
+    thumbnailUrl: safeFavoriteThumbnail(track.thumbnailUrl, videoId),
+    ...(track.duration ? { duration: String(track.duration).slice(0, 32) } : {}),
+    ...(classification
+      ? { classification, badge: FAVORITE_CLASSIFICATIONS[classification] }
+      : {})
+  };
+}
+
+export function sanitizeFavorites(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(normalizeFavorite).filter(Boolean).slice(0, 100);
+}
+
+function readFavorites() {
+  try {
+    const raw = localStorage.getItem(FAVORITES_STORAGE_KEY);
+    return raw ? sanitizeFavorites(JSON.parse(raw)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeFavorites(items) {
+  try {
+    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(sanitizeFavorites(items)));
+  } catch {
+    // quota exceeded or restricted storage
+  }
+}
+
+function viewToState(view, previous = {}) {
   const queue = normalizeQueue({ revision: view.revision, current: view.current, items: view.queue });
   return {
     revision: queue.revision,
     current: queue.current,
     queue: queue.items,
-    stationName: view.stationName || "KaraokeStation"
+    stationName: view.stationName || "KaraokeStation",
+    settings: view.settings ?? previous.settings ?? {}
   };
 }
 
@@ -41,6 +138,17 @@ function Empty({ title, detail }) {
 }
 
 function Toast({ message, onClose }) {
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!message) return undefined;
+    const timer = setTimeout(() => onCloseRef.current?.(), 2500);
+    return () => clearTimeout(timer);
+  }, [message]);
+
   if (!message) return null;
   return (
     <div className="display-toast" role="status">
@@ -56,8 +164,6 @@ function HostedPlayer({ track, onEnded, onError, onExitFullscreen, isFullscreen,
   const playerRef = useRef(null);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
 
-  // Keep the callbacks in refs so the player effect depends only on the video id.
-  // Re-running it on every parent render would tear down and rebuild the iframe.
   const onEndedRef = useRef(onEnded);
   const onErrorRef = useRef(onError);
   const volumeRef = useRef(volume);
@@ -67,18 +173,12 @@ function HostedPlayer({ track, onEnded, onError, onExitFullscreen, isFullscreen,
 
   useEffect(() => {
     let cancelled = false;
-    // Per-run flag rather than a ref: a ref is shared across effect runs, so a
-    // remount would reset it and re-enable an already-spent ENDED handler.
     let ended = false;
     setAutoplayBlocked(false);
     if (!track?.videoId) return undefined;
 
     const create = () => {
       if (cancelled || !rootRef.current) return;
-      // The YouTube API REPLACES the element it is given with its own iframe.
-      // Handing it a React-rendered node makes React lose track of that node and
-      // throw NotFoundError on unmount, which blanks the whole screen. So we mount
-      // a plain child that React never manages and let YouTube consume that.
       const mount = document.createElement("div");
       rootRef.current.appendChild(mount);
       playerRef.current = new window.YT.Player(mount, {
@@ -90,9 +190,6 @@ function HostedPlayer({ track, onEnded, onError, onExitFullscreen, isFullscreen,
             target.playVideo();
           },
           onStateChange: ({ data }) => {
-            // `cancelled` scopes this guard to THIS effect run. Without it, a player
-            // torn down by StrictMode's double-invoke (or a fast track change) could
-            // still fire ENDED and advance the queue, silently eating a song.
             if (cancelled || ended) return;
             if (data === window.YT.PlayerState.PLAYING) setAutoplayBlocked(false);
             if (data === window.YT.PlayerState.ENDED) {
@@ -122,8 +219,6 @@ function HostedPlayer({ track, onEnded, onError, onExitFullscreen, isFullscreen,
         // destroy() can throw if the iframe is already gone; nothing to recover.
       }
       playerRef.current = null;
-      // Clear whatever YouTube left behind. React never owned these children, so
-      // emptying the container here is safe and keeps the next mount clean.
       if (rootRef.current) rootRef.current.textContent = "";
     };
   }, [track?.videoId]);
@@ -139,7 +234,6 @@ function HostedPlayer({ track, onEnded, onError, onExitFullscreen, isFullscreen,
 
   return (
     <div className="hosted-video" ref={containerRef}>
-      {/* Stable container React owns; YouTube only ever touches its children. */}
       <div className="hosted-video-mount" ref={rootRef} aria-label={track ? `YouTube ${track.title}` : undefined} />
       {!track && <Empty title="รอเพลงแรก" detail="สแกน QR ด้วยมือถือเพื่อค้นหาและเพิ่มเพลง" />}
       {track && autoplayBlocked && (
@@ -172,7 +266,7 @@ function DisplayView() {
   const notify = useCallback((text) => {
     setMessage(text);
     clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setMessage(""), 5_000);
+    toastTimer.current = setTimeout(() => setMessage(""), 3_000);
   }, []);
 
   useEffect(() => () => clearTimeout(toastTimer.current), []);
@@ -200,6 +294,7 @@ function DisplayView() {
       const next = {
         roomId: created.roomId,
         token: created.hostToken,
+        joinToken: created.joinToken,
         joinPath: created.joinPath,
         expiresAt: created.expiresAt,
         searchConfigured: created.searchConfigured
@@ -215,8 +310,6 @@ function DisplayView() {
     }
   }, [notify]);
 
-  // A display with no session starts a room automatically, so the TV only ever
-  // needs the URL — no buttons, no setup.
   useEffect(() => {
     if (!session && !creating) void createRoom();
   }, [session, creating, createRoom]);
@@ -225,7 +318,7 @@ function DisplayView() {
     if (!session) return undefined;
     let stop = false;
     hostedApi.room(session.roomId, session.token)
-      .then((view) => { if (!stop) setRoom(viewToState(view)); })
+      .then((view) => { if (!stop) setRoom((old) => viewToState(view, old)); })
       .catch((requestError) => {
         if (stop) return;
         if (isSessionRevokedError(`${requestError.code} ${requestError.status}`)) {
@@ -240,7 +333,7 @@ function DisplayView() {
     if (!session) return undefined;
     return connectRoom(session, (event) => {
       if (event.type === "connection") setConnected(event.connected);
-      if (event.type === "room") setRoom(viewToState(event.view));
+      if (event.type === "room") setRoom((old) => viewToState(event.view, old));
       if (event.type === "action") {
         const verb = { add: "เพิ่ม", remove: "ลบ", reorder: "ย้าย", skip: "ข้าม", play_now: "เลือกเล่นทันที" }[event.action.action] || "จัดการ";
         notify(`${event.action.actor} ${verb} “${event.action.track?.title || "เพลง"}”`);
@@ -259,19 +352,10 @@ function DisplayView() {
       const result = await hostedApi.advance(session.roomId, session.token, room.revision);
       setRoom((old) => ({ ...old, revision: result.revision }));
     } catch (requestError) {
-      // A 409 means someone else already advanced; the socket will deliver the truth.
       if (requestError.status !== 409) notify(requestError.message);
     }
   }, [session, room.revision, notify]);
 
-  /**
-   * Skipping the current song is destructive, so it only happens for errors that
-   * mean the video itself is unplayable — and only after one retry.
-   *
-   * Without the retry, anything that breaks the player globally (offline, YouTube
-   * blocked, iframe API failing to load) would report a failure for every track in
-   * turn and silently drain the whole queue.
-   */
   const failureCountRef = useRef({ videoId: null, count: 0 });
   const currentVideoIdRef = useRef(null);
   currentVideoIdRef.current = room.current?.videoId ?? null;
@@ -279,15 +363,14 @@ function DisplayView() {
   const reportFailure = useCallback(async (code) => {
     if (!session) return;
     const unplayable = {
-      2: "player_error",        // invalid video id
-      5: "player_error",        // HTML5 player error
-      100: "private",           // removed or private
-      101: "embed_disabled",    // embedding not allowed
-      150: "embed_disabled"     // embedding not allowed (alias)
+      2: "player_error",
+      5: "player_error",
+      100: "private",
+      101: "embed_disabled",
+      150: "embed_disabled"
     };
     const reason = unplayable[code];
     if (!reason) {
-      // Loader/network trouble: keep the song, let the user retry.
       notify("โหลดวิดีโอไม่สำเร็จ กำลังลองใหม่");
       return;
     }
@@ -305,7 +388,7 @@ function DisplayView() {
     try {
       await hostedApi.currentFailure(session.roomId, session.token, reason, `YouTube error ${code}`);
     } catch {
-      // The next snapshot will resync the queue.
+      // resync on next snapshot
     }
   }, [session, notify]);
 
@@ -414,7 +497,7 @@ function JoinForm({ roomId, onJoin }) {
         <form onSubmit={submit}>
           <label>
             ชื่อของคุณ
-            <input aria-label="ชื่อของคุณ" maxLength="20" value={name} onChange={(event) => setName(event.target.value)} />
+            <input aria-label="ชื่อของคุณ" maxLength="20" value={name} onChange={(event) => setName(event.target.value)} autoFocus />
           </label>
           {error && <p className="form-error">{error}</p>}
           <button className="button primary wide" disabled={loading || name.trim().length < 1}>
@@ -428,7 +511,7 @@ function JoinForm({ roomId, onJoin }) {
   );
 }
 
-function ResultRow({ track, onAdd }) {
+function ResultRow({ track, onAdd, isFavorite, onToggleFavorite }) {
   return (
     <article className="song-result">
       <img src={track.thumbnailUrl || `https://i.ytimg.com/vi/${track.videoId}/mqdefault.jpg`} alt="" />
@@ -437,39 +520,67 @@ function ResultRow({ track, onAdd }) {
         <h3>{track.title}</h3>
         <p>{track.channelTitle || "YouTube"}</p>
       </div>
-      <button className="icon-button accent" aria-label={`เพิ่ม ${track.title} เข้าคิว`} onClick={() => onAdd(track)}>
-        <Plus size={18} />
-      </button>
+      <div className="result-actions" style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+        {onToggleFavorite && (
+          <button
+            className={`icon-button favorite-btn${isFavorite ? " is-favorite" : ""}`}
+            aria-label={isFavorite ? "ลบจากเพลงโปรด" : "เพิ่มในเพลงโปรด"}
+            title={isFavorite ? "ลบจากเพลงโปรด" : "เพิ่มในเพลงโปรด"}
+            onClick={() => onToggleFavorite(track)}
+          >
+            <Star size={18} fill={isFavorite ? "#fbbf24" : "none"} color={isFavorite ? "#fbbf24" : "currentColor"} />
+          </button>
+        )}
+        <button className="icon-button accent" aria-label={`เพิ่ม ${track.title} เข้าคิว`} onClick={() => onAdd(track)}>
+          <Plus size={18} />
+        </button>
+      </div>
     </article>
   );
 }
 
 function ControllerView({ session, onRevoked }) {
   const [tab, setTab] = useState("search");
+  const [searchSubTab, setSearchSubTab] = useState("all");
   const [room, setRoom] = useState(emptyRoomState);
   const [connected, setConnected] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
+  const [favorites, setFavorites] = useState(readFavorites);
+  const [historyItems, setHistoryItems] = useState([]);
   const [phase, setPhase] = useState("idle");
   const [notice, setNotice] = useState("");
   const [reorderMode, setReorderMode] = useState(false);
   const [movingQueueId, setMovingQueueId] = useState("");
+  const [fairQueueSaving, setFairQueueSaving] = useState(false);
 
   useEffect(() => connectRoom(session, (event) => {
     if (event.type === "connection") setConnected(event.connected);
-    if (event.type === "room") setRoom(viewToState(event.view));
+    if (event.type === "room") setRoom((old) => viewToState(event.view, old));
     if (event.type === "revoked") onRevoked();
   }), [session, onRevoked]);
 
   useEffect(() => {
     let stop = false;
     hostedApi.queue(session.roomId, session.token)
-      .then((view) => { if (!stop) setRoom(viewToState(view)); })
+      .then((view) => { if (!stop) setRoom((old) => viewToState(view, old)); })
       .catch((error) => {
         if (!stop && isSessionRevokedError(`${error.code} ${error.status}`)) onRevoked();
       });
     return () => { stop = true; };
   }, [session, onRevoked]);
+
+  // Load history when switching to history tab
+  useEffect(() => {
+    if (tab !== "history") return undefined;
+    let stop = false;
+    hostedApi.history(session.roomId, session.token)
+      .then((data) => {
+        if (!stop) setHistoryItems(data.history || []);
+      })
+      .catch(() => {});
+    return () => { stop = true; };
+  }, [tab, session, room.revision]);
 
   const guard = async (operation) => {
     try {
@@ -480,12 +591,46 @@ function ControllerView({ session, onRevoked }) {
     }
   };
 
+  const toggleFavorite = (track) => {
+    const exists = favorites.some((f) => f.videoId === track.videoId);
+    let next;
+    if (exists) {
+      next = favorites.filter((f) => f.videoId !== track.videoId);
+      setNotice(`ลบ “${track.title}” ออกจากเพลงโปรด`);
+    } else {
+      const fav = normalizeFavorite(track);
+      if (!fav) {
+        setNotice("เพลงนี้มีข้อมูลไม่ครบ จึงบันทึกเป็นเพลงโปรดไม่ได้");
+        return;
+      }
+      next = [fav, ...favorites];
+      setNotice(`บันทึก “${track.title}” เป็นเพลงโปรด ⭐`);
+    }
+    setFavorites(next);
+    writeFavorites(next);
+  };
+
   const search = async (event) => {
-    event.preventDefault();
-    if (!query.trim()) return;
+    if (event) event.preventDefault();
+    const trimmed = query.trim();
+    if (!trimmed) return;
     setPhase("loading");
+
+    // Detect YouTube link or ID
+    const isDirectLink = /youtube\.com|youtu\.be|^[A-Za-z0-9_-]{11}$/i.test(trimmed);
+    if (isDirectLink) {
+      try {
+        const resolved = await guard(() => hostedApi.resolveYouTube(session.roomId, session.token, trimmed));
+        setResults([normalizeTrack(resolved)]);
+        setPhase("done");
+        return;
+      } catch {
+        // fallback to normal search
+      }
+    }
+
     try {
-      const data = await guard(() => hostedApi.search(session.roomId, session.token, query));
+      const data = await guard(() => hostedApi.search(session.roomId, session.token, trimmed));
       setResults((data.results || []).map(normalizeTrack));
       setPhase("done");
     } catch (error) {
@@ -557,13 +702,59 @@ function ControllerView({ session, onRevoked }) {
     }
   };
 
+  const toggleFairQueue = async () => {
+    if (fairQueueSaving) return;
+    const enabled = !Boolean(room.settings?.fairQueue);
+    setFairQueueSaving(true);
+    try {
+      const result = await guard(() => hostedApi.updateSettings(session.roomId, session.token, { fairQueue: enabled }));
+      setRoom((old) => ({
+        ...old,
+        revision: Math.max(old.revision, result.revision ?? old.revision),
+        settings: { ...old.settings, ...(result.settings || {}) }
+      }));
+      setNotice(enabled ? "เปิดคิวผลัดกันร้องแล้ว" : "ปิดคิวผลัดกันร้องแล้ว");
+    } catch (error) {
+      setNotice(error.message || "เปลี่ยนโหมดคิวไม่สำเร็จ");
+    } finally {
+      setFairQueueSaving(false);
+    }
+  };
+
+  const shareRoom = () => {
+    const joinUrl = partyJoinUrlFor(session.roomId, session.joinToken);
+    if (!joinUrl) {
+      setNotice("ลิงก์เชิญหมดอายุแล้ว กรุณาสแกน QR จากจอทีวีอีกครั้ง");
+      return;
+    }
+    if (navigator.share) {
+      navigator.share({
+        title: "KaraokeStation",
+        text: `มาร้องคาราโอเกะด้วยกันที่ห้อง ${session.roomId}! 🎤`,
+        url: joinUrl
+      }).catch(() => {});
+    } else {
+      window.open(`https://line.me/R/msg/text/?${encodeURIComponent(`มาร้องคาราโอเกะด้วยกันที่ห้อง ${session.roomId}! 🎤\n${joinUrl}`)}`, "_blank");
+    }
+  };
+
   return (
     <main className="party hosted-party">
       <header className="hosted-party-header">
         <span className="party-brand"><Music2 size={18} /> ห้อง {session.roomId}</span>
-        <span className={connected ? "connected" : "disconnected"}>
-          {connected ? <Wifi size={15} /> : <WifiOff size={15} />} {connected ? "เชื่อมต่อ" : "ขาดการเชื่อมต่อ"}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <button
+            className="share-button-line"
+            onClick={shareRoom}
+            title="แชร์เข้า LINE / Group Chat"
+            aria-label="แชร์ลิงก์ห้องเข้า LINE หรือส่งให้เพื่อน"
+          >
+            <Share2 size={14} /> แชร์ห้อง
+          </button>
+          <span className={connected ? "connected" : "disconnected"}>
+            {connected ? <Wifi size={15} /> : <WifiOff size={15} />} {connected ? "เชื่อมต่อ" : "ขาดการเชื่อมต่อ"}
+          </span>
+        </div>
       </header>
 
       <section className="now-playing">
@@ -574,31 +765,90 @@ function ControllerView({ session, onRevoked }) {
         </button>
       </section>
 
-      {tab === "search" ? (
+      <div className="hosted-mobile-controls">
+        <button
+          className={`button secondary hosted-fair-queue-mobile-toggle${room.settings?.fairQueue ? " active" : ""}`}
+          aria-pressed={Boolean(room.settings?.fairQueue)}
+          onClick={toggleFairQueue}
+          disabled={fairQueueSaving}
+        >
+          <ArrowUpDown size={16} />
+          {room.settings?.fairQueue ? "คิวผลัดกันร้อง: เปิด" : "เปิดคิวผลัดกันร้อง"}
+        </button>
+      </div>
+
+      {tab === "search" && (
         <section className="mobile-section">
-          <h1>ค้นหาเพลง</h1>
-          <p>แสดงเฉพาะ Karaoke, Instrumental และ Backing Track</p>
-          <form onSubmit={search} className="mobile-search">
-            <Search size={20} />
-            <input
-              aria-label="ค้นหาเพลง"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="ชื่อเพลงหรือศิลปิน"
-              autoComplete="off"
-            />
-            <button className="button primary" type="submit">ค้นหา</button>
-          </form>
-          <div className="results" aria-live="polite">
-            {phase === "idle" && <Empty title="อยากร้องเพลงอะไรดี?" detail="พิมพ์ชื่อเพลงแล้วกดค้นหา" />}
-            {phase === "loading" && <p className="loading"><LoaderCircle className="spin" /> กำลังค้นหา…</p>}
-            {phase === "done" && results.length === 0 && (
-              <Empty title="ไม่พบคาราโอเกะหรือเพลงประกอบ" detail="ลองเปลี่ยนคำค้นอีกนิด" />
-            )}
-            {results.map((track) => <ResultRow key={track.videoId} track={track} onAdd={add} />)}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.25rem" }}>
+            <h1 style={{ margin: 0 }}>ค้นหาเพลง</h1>
+            <div className="search-sub-tabs" role="tablist">
+              <button
+                className={`search-sub-tab${searchSubTab === "all" ? " active" : ""}`}
+                onClick={() => setSearchSubTab("all")}
+              >
+                ทั้งหมด
+              </button>
+              <button
+                className={`search-sub-tab${searchSubTab === "favorites" ? " active" : ""}`}
+                onClick={() => setSearchSubTab("favorites")}
+              >
+                ⭐ เพลงโปรด ({favorites.length})
+              </button>
+            </div>
           </div>
+          <p>แสดงเฉพาะ Karaoke, Instrumental, Backing Track หรือแปะลิงก์ YouTube</p>
+
+          {searchSubTab === "all" ? (
+            <>
+              <form onSubmit={search} className="mobile-search">
+                <Search size={20} />
+                <input
+                  aria-label="ค้นหาเพลง"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="ชื่อเพลง, ศิลปิน หรือวางลิงก์ YouTube"
+                  autoComplete="off"
+                />
+                <button className="button primary" type="submit">ค้นหา</button>
+              </form>
+              <div className="results" aria-live="polite">
+                {phase === "idle" && <Empty title="อยากร้องเพลงอะไรดี?" detail="พิมพ์ชื่อเพลงหรือวางลิงก์ YouTube แล้วกดค้นหา" />}
+                {phase === "loading" && <p className="loading"><LoaderCircle className="spin" /> กำลังค้นหา…</p>}
+                {phase === "done" && results.length === 0 && (
+                  <Empty title="ไม่พบคาราโอเกะหรือเพลงประกอบ" detail="ลองเปลี่ยนคำค้น หรือวางลิงก์ YouTube โดยตรง" />
+                )}
+                {results.map((track) => (
+                  <ResultRow
+                    key={track.videoId}
+                    track={track}
+                    onAdd={add}
+                    isFavorite={favorites.some((f) => f.videoId === track.videoId)}
+                    onToggleFavorite={toggleFavorite}
+                  />
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="results" aria-live="polite">
+              {favorites.length === 0 ? (
+                <Empty title="ยังไม่มีเพลงโปรด" detail="แตะไอคอนรูปดาว ⭐ ที่เพลงใดก็ได้เพื่อเก็บไว้ร้องประจำ" />
+              ) : (
+                favorites.map((track) => (
+                  <ResultRow
+                    key={track.videoId}
+                    track={track}
+                    onAdd={add}
+                    isFavorite={true}
+                    onToggleFavorite={toggleFavorite}
+                  />
+                ))
+              )}
+            </div>
+          )}
         </section>
-      ) : (
+      )}
+
+      {tab === "queue" && (
         <section className={`mobile-section queue-tab${reorderMode ? " reorder-mode" : ""}`}>
           <div className="queue-heading">
             <h1>คิวเพลง <span>({room.queue.length})</span></h1>
@@ -662,12 +912,51 @@ function ControllerView({ session, onRevoked }) {
         </section>
       )}
 
+      {tab === "history" && (
+        <section className="mobile-section history-tab">
+          <div className="queue-heading">
+            <h1>ประวัติเพลงที่ร้องไปแล้ว <span>({historyItems.length})</span></h1>
+          </div>
+          <p>รายการเพลงที่เล่นจบหรือถูกข้ามในรอบนี้</p>
+          {historyItems.length ? (
+            <ol aria-label="รายการประวัติเพลง" style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "10px" }}>
+              {historyItems.map((track, idx) => (
+                <li key={track.id || `${track.videoId}-${idx}`} style={{ display: "grid", gridTemplateColumns: "72px minmax(0, 1fr) auto", alignItems: "center", gap: "10px", padding: "8px", border: "1px solid var(--warm)", borderRadius: "12px", background: "var(--surface)" }}>
+                  <img src={track.thumbnailUrl || `https://i.ytimg.com/vi/${track.videoId}/mqdefault.jpg`} alt="" style={{ width: "72px", height: "41px", objectFit: "cover", borderRadius: "6px" }} />
+                  <div style={{ minWidth: 0 }}>
+                    <strong style={{ fontSize: "14px", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{track.title}</strong>
+                    <small style={{ color: "var(--muted)", fontSize: "12px" }}>
+                      {track.status === "completed" ? "✅ จบแล้ว" : track.status === "skipped" ? "⏭️ ข้าม" : "⏹️ หยุดก่อนจบ"}
+                      {track.requestedBy && ` • โดย ${track.requestedBy}`}
+                    </small>
+                  </div>
+                  <button
+                    className="icon-button accent"
+                    style={{ width: "36px", height: "36px" }}
+                    aria-label={`ร้องเพลง ${track.title} อีกครั้ง`}
+                    title="ร้องอีกครั้ง"
+                    onClick={() => add(track)}
+                  >
+                    <RotateCcw size={16} />
+                  </button>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <Empty title="ยังไม่มีประวัติเพลง" detail="เมื่อร้องเพลงจบแล้ว เพลงจะปรากฏที่นี่เพื่อให้กดร้องซ้ำได้ง่าย" />
+          )}
+        </section>
+      )}
+
       <nav className="bottom-tabs" aria-label="เมนูมือถือ">
         <button className={tab === "search" ? "active" : ""} onClick={() => { setTab("search"); setReorderMode(false); }}>
           <Search /> ค้นหา
         </button>
         <button className={tab === "queue" ? "active" : ""} onClick={() => setTab("queue")}>
-          <ListMusic /> คิว {room.queue.length}
+          <ListMusic /> คิว {room.queue.length > 0 ? `(${room.queue.length})` : ""}
+        </button>
+        <button className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>
+          <History /> ประวัติ {historyItems.length > 0 ? `(${historyItems.length})` : ""}
         </button>
       </nav>
 
@@ -688,6 +977,7 @@ function PartyView() {
       roomId: result.roomId,
       token: result.token,
       displayName: result.displayName,
+      joinToken: fragment.joinToken,
       expiresAt: result.expiresAt
     };
     writeSession(CONTROLLER_STORAGE_KEY, next);

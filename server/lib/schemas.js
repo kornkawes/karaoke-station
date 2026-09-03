@@ -94,7 +94,12 @@ export const settingsPatchSchema = z.object({
   allowDuplicate: z.boolean().optional(),
   partyEnabled: z.boolean().optional(),
   guestRateLimitPerMinute: z.number().int().min(2).max(30).optional(),
-  lrclibEnabled: z.boolean().optional()
+  lrclibEnabled: z.boolean().optional(),
+  fairQueue: z.boolean().optional()
+}).strict();
+
+export const fairQueuePatchSchema = z.object({
+  fairQueue: z.boolean()
 }).strict();
 
 export const partyJoinSchema = z.object({
@@ -125,7 +130,8 @@ const stateV2Schema = z.object({
     allowDuplicate: z.boolean(),
     partyEnabled: z.boolean(),
     guestRateLimitPerMinute: z.number().int(),
-    lrclibEnabled: z.boolean()
+    lrclibEnabled: z.boolean(),
+    fairQueue: z.boolean().default(false)
   }),
   current: z.any().nullable(),
   queue: z.array(z.any()).max(100),
@@ -178,7 +184,8 @@ export function defaultState() {
       allowDuplicate: true,
       partyEnabled: false,
       guestRateLimitPerMinute: 10,
-      lrclibEnabled: false
+      lrclibEnabled: false,
+      fairQueue: false
     },
     current: null,
     queue: [],
