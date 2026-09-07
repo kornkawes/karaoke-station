@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Karaoke Station — Mobile preview</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="polish.css" />
+    <link rel="stylesheet" href="mobile-parity.css" />
+  </head>
+  <body class="mobile-preview" data-page="mobile">
+    <div class="desktop-context"><a href="host.html">← กลับหน้าจอแสดงผล</a><p>MOBILE REMOTE<br />SAME-BROWSER PREVIEW</p></div>
+    <main class="phone" aria-label="Karaoke Station mobile remote preview">
+      <header class="phone-header">
+        <div><a class="wordmark" href="index.html">KARAOKE STATION <i>AFTER HOURS</i></a><p><span class="status-dot"></span> AH-2248 · same-browser demo</p></div>
+        <div class="header-actions"><button class="share-button svg-button" data-action="share" aria-label="เปิดคำเชิญห้อง"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"></circle><circle cx="6" cy="12" r="2.5"></circle><circle cx="18" cy="19" r="2.5"></circle><path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5"></path></svg><span>แชร์</span></button><button class="settings-button svg-button" data-action="settings" aria-label="ตั้งค่าห้องตัวอย่าง"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19 12a7 7 0 0 0-.08-1l2-1.55-2-3.46-2.36.95a7 7 0 0 0-1.72-1L14.5 3h-5l-.34 2.94a7 7 0 0 0-1.72 1L5.08 6 3.08 9.46l2 1.55A7 7 0 0 0 5 12c0 .34.03.67.08 1l-2 1.55 2 3.46 2.36-.95a7 7 0 0 0 1.72 1L9.5 21h5l.34-2.94a7 7 0 0 0 1.72-1l2.36.95 2-3.46-2-1.55c.05-.33.08-.66.08-1Z"></path></svg></button></div>
+      </header>
+      <section class="phone-content" id="phoneContent" aria-live="polite"></section>
+      <section class="now-dock" id="nowDock" aria-label="ตัวควบคุมเพลงปัจจุบัน"></section>
+      <nav class="bottom-nav" aria-label="เมนูหลัก"><button data-view="search" class="active"><span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m16 16 4 4"></path></svg></span>ค้นหา</button><button data-view="queue"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h9"></path></svg></span>คิว <i id="queueBadge">0</i></button><button data-view="history"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v5l3 2"></path><circle cx="12" cy="12" r="8"></circle></svg></span>ประวัติ</button></nav>
+    </main>
+    <div class="sheet-root" id="sheetRoot"></div>
+    <div class="toast" role="status" aria-live="polite"></div>
+    <script src="demo-state.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

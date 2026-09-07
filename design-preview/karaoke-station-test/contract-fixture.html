@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KaraokeStation Theme Contract Sandbox</title>
+    <link rel="stylesheet" href="fixture.css" />
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">ISOLATED INTEGRATION SANDBOX</p>
+      <h1>KaraokeStation<br /><em>theme contract</em></h1>
+      <p class="intro">หน้านี้ไม่ใช่แอปจริงและไม่เรียกเครือข่ายจนกว่าจะกรอก loopback URL แล้วกดตรวจสอบ</p>
+      <section class="panel" aria-labelledby="contract-title">
+        <h2 id="contract-title">Hosted room shape</h2>
+        <pre id="contractOutput" aria-live="polite"></pre>
+      </section>
+      <section class="panel" aria-labelledby="verify-title">
+        <h2 id="verify-title">Read-only API check</h2>
+        <form id="verifyForm">
+          <label>Base URL <input id="baseUrl" type="url" placeholder="http://127.0.0.1:3000" /></label>
+          <label>Room ID <input id="roomId" autocomplete="off" placeholder="room id" /></label>
+          <label>Bearer token <input id="token" type="password" autocomplete="off" placeholder="not stored" /></label>
+          <button type="submit">ตรวจ health / queue / history</button>
+        </form>
+        <p class="hint">อนุญาตเฉพาะ localhost/127.0.0.1 และเรียก GET เท่านั้น; token อยู่ในหน่วยความจำของหน้านี้จนปิดแท็บ</p>
+        <output id="verifyResult" aria-live="polite"></output>
+      </section>
+    </main>
+    <script src="fixture.js"></script>
+  </body>
+</html>

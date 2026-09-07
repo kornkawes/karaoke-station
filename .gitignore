@@ -1,0 +1,19 @@
+node_modules/
+dist/
+data/
+.env
+.secrets/
+API.txt
+release/API.txt
+*.log
+.vite/
+playwright-report/
+test-results/
+coverage/
+.playwright-mcp/
+# Legacy Windows installer output: large binaries the hosted deploy never needs.
+release/
+packaging/.stage/
+packaging/.stage-windows7/
+# Runtime state written by packaging smoke tests; holds PINs and key placeholders.
+packaging/.dev-proxy-smoke*/

@@ -1,0 +1,23 @@
+KaraokeStation third-party notices
+==================================
+
+The modern installer includes Node.js 22.23.1 for Windows x64 and x86.
+The Windows 7 legacy installer includes Node.js 12.22.12 for Windows x64 and x86.
+Node.js is distributed under the MIT license and includes third-party software
+notices in runtime\LICENSE-node.txt, copied verbatim from the official Node.js
+binary distribution.
+
+Production JavaScript dependencies are installed from the pinned
+app\package-lock.json in the modern installer, or compiled into the legacy
+server bundle from the root package-lock.json during the trusted build. They include:
+
+- dotenv 17.4.2 (BSD-2-Clause)
+- express 4.22.2 and transitive dependencies (MIT)
+- express-rate-limit 8.6.1 (MIT)
+- helmet 8.3.0 (MIT)
+- socket.io 4.8.3 and transitive dependencies (MIT)
+- zod 4.4.3 (MIT)
+
+The full dependency tree and resolved package metadata are recorded in the
+source package-lock files. Browser source dependencies, build tools, test tools,
+npm, and a web browser are not bundled in the installed runtime.

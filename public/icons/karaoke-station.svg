@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="KaraokeStation">
+  <rect width="512" height="512" rx="112" fill="#101317"/>
+  <circle cx="222" cy="180" r="96" fill="#31c4b7"/>
+  <path d="M280 242 168 354" stroke="#f7f8fa" stroke-width="50" stroke-linecap="round"/>
+  <path d="M151 337 93 395" stroke="#ffb547" stroke-width="72" stroke-linecap="round"/>
+  <path d="M330 145v190M330 172l96-24v154" fill="none" stroke="#cc75ff" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="307" cy="344" r="31" fill="#cc75ff"/>
+  <circle cx="403" cy="311" r="31" fill="#cc75ff"/>
+</svg>
