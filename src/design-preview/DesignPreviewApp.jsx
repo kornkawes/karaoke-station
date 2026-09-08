@@ -7,6 +7,7 @@ import {
   LoaderCircle,
   Maximize2,
   Mic2,
+  Pause,
   Play,
   Plus,
   Search,
@@ -15,6 +16,8 @@ import {
   SkipForward,
   Star,
   Trash2,
+  Volume2,
+  VolumeX,
   Wifi,
   WifiOff,
   X
@@ -88,14 +91,17 @@ function Toast({ message, onClose }) {
   );
 }
 
-function PreviewYouTubeStage({ track, onEnded, onError }) {
+function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyPreviewRoom.playback }) {
   const mountRef = useRef(null);
   const playerRef = useRef(null);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const onEndedRef = useRef(onEnded);
   const onErrorRef = useRef(onError);
+  const playbackRef = useRef(playback);
   onEndedRef.current = onEnded;
   onErrorRef.current = onError;
+  playbackRef.current = playback;
+  const trackKey = track ? `${track.queueId || ""}:${track.videoId}` : "";
 
   useEffect(() => {
     let cancelled = false;
@@ -109,11 +115,15 @@ function PreviewYouTubeStage({ track, onEnded, onError }) {
       mountRef.current.appendChild(mount);
       playerRef.current = new window.YT.Player(mount, {
         videoId: track.videoId,
-        playerVars: { autoplay: 1, playsinline: 1, rel: 0, origin: window.location.origin },
+        playerVars: { autoplay: playbackRef.current.playing ? 1 : 0, playsinline: 1, rel: 0, origin: window.location.origin },
         events: {
           onReady: ({ target }) => {
-            target.setVolume(78);
-            target.playVideo();
+            const next = playbackRef.current;
+            target.setVolume(next.volume);
+            if (next.muted) target.mute();
+            else target.unMute();
+            if (next.playing) target.playVideo();
+            else target.pauseVideo();
           },
           onStateChange: ({ data }) => {
             if (cancelled || ended) return;
@@ -142,11 +152,25 @@ function PreviewYouTubeStage({ track, onEnded, onError }) {
       playerRef.current = null;
       if (mountRef.current) mountRef.current.textContent = "";
     };
-  }, [track?.videoId]);
+  }, [trackKey]);
+
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    try {
+      player.setVolume?.(playback.volume);
+      if (playback.muted) player.mute?.();
+      else player.unMute?.();
+      if (playback.playing) player.playVideo?.();
+      else player.pauseVideo?.();
+    } catch {
+      // The IFrame API can still be initializing; onReady applies the latest room state.
+    }
+  }, [playback.playing, playback.volume, playback.muted]);
 
   const unlock = () => {
     playerRef.current?.unMute?.();
-    playerRef.current?.setVolume?.(78);
+    playerRef.current?.setVolume?.(playbackRef.current.volume);
     playerRef.current?.playVideo?.();
     setAutoplayBlocked(false);
   };
@@ -316,7 +340,7 @@ function PreviewDisplayView() {
         className="display-stage"
         aria-label={room.current ? `จอเพลงจริง · ${room.current.title}` : "จอเพลงจริง · รอเพลงแรก"}
       >
-        <PreviewYouTubeStage track={room.current} onEnded={advance} onError={reportFailure} />
+        <PreviewYouTubeStage track={room.current} onEnded={advance} onError={reportFailure} playback={room.playback} />
 
         <aside className="join-corner" aria-label="ข้อมูลห้องจริง">
           <div className="real-qr"><QRCodeSVG value={joinUrl} size={84} bgColor="#f5f1e8" fgColor="#050607" /></div>
@@ -433,12 +457,19 @@ function PreviewController({ session, onRevoked }) {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
   const [fairSaving, setFairSaving] = useState(false);
+  const [playbackSaving, setPlaybackSaving] = useState(false);
+  const [volumeDraft, setVolumeDraft] = useState(null);
+  const playbackPending = useRef(null);
+  const playbackMutating = useRef(false);
+  const volumeTimer = useRef(null);
 
   useEffect(() => {
     if (!notice) return undefined;
     const timer = setTimeout(() => setNotice(""), 3_000);
     return () => clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => () => clearTimeout(volumeTimer.current), []);
 
   useEffect(() => connectRoom(session, (event) => {
     if (event.type === "connection") setConnected(event.connected);
@@ -578,6 +609,39 @@ function PreviewController({ session, onRevoked }) {
     }
   };
 
+  const flushPlayback = async () => {
+    if (playbackMutating.current || !playbackPending.current) return;
+    const patch = playbackPending.current;
+    playbackPending.current = null;
+    playbackMutating.current = true;
+    setPlaybackSaving(true);
+    try {
+      await guard(() => hostedApi.updatePlayback(session.roomId, session.token, patch));
+    } catch (requestError) {
+      setNotice(requestError.message || "เปลี่ยนการเล่นไม่สำเร็จ");
+    } finally {
+      playbackMutating.current = false;
+      if (playbackPending.current) void flushPlayback();
+      else setPlaybackSaving(false);
+    }
+  };
+
+  const updatePlayback = (patch) => {
+    if (!current) return;
+    playbackPending.current = { ...(playbackPending.current || {}), ...patch };
+    void flushPlayback();
+  };
+
+  const changeVolume = (event) => {
+    const volume = Number(event.target.value);
+    setVolumeDraft(volume);
+    clearTimeout(volumeTimer.current);
+    volumeTimer.current = setTimeout(() => {
+      setVolumeDraft(null);
+      updatePlayback({ volume });
+    }, 240);
+  };
+
   const shareRoom = async () => {
     const url = partyJoinUrlFor(session.roomId, session.joinToken);
     try {
@@ -686,7 +750,7 @@ function PreviewController({ session, onRevoked }) {
           <div className="sheet-backdrop" onClick={() => setSheet(null)} />
           <section className="remote-sheet" role="dialog" aria-modal="true">
             <button type="button" className="sheet-close" onClick={() => setSheet(null)} aria-label="ปิด"><X size={19} /></button>
-            {sheet === "remote" && <><p className="eyebrow">MOBILE REMOTE · LIVE</p><h2>{current?.title || "รอเพลงแรก"}</h2><p className="sheet-subtitle">{current ? `${current.channelTitle || "YouTube"} · ห้อง ${session.roomId}` : "ยังไม่มีเพลงกำลังเล่น"}</p><div className="remote-primary"><button type="button" disabled={!current || Boolean(busy)} onClick={skip}><SkipForward size={17} /> ข้ามเพลง</button><button type="button" disabled={room.queue.length === 0} onClick={() => { setSheet(null); setTab("queue"); }}><ListMusic size={17} /> เปิดคิว</button></div><p className="sheet-note">การเล่นวิดีโอและเสียงควบคุมที่จอ Host; คำสั่งข้ามและคิวนี้ส่งเข้าห้องจริง</p></>}
+            {sheet === "remote" && <><p className="eyebrow">MOBILE REMOTE · LIVE</p><h2>{current?.title || "รอเพลงแรก"}</h2><p className="sheet-subtitle">{current ? `${current.channelTitle || "YouTube"} · ห้อง ${session.roomId}` : "ยังไม่มีเพลงกำลังเล่น"}</p><div className="remote-primary"><button type="button" disabled={!current || Boolean(busy)} onClick={skip}><SkipForward size={17} /> ข้ามเพลง</button><button type="button" disabled={!current || playbackSaving} onClick={() => updatePlayback({ playing: !room.playback?.playing })}>{room.playback?.playing ? <><Pause size={17} /> พักเพลง</> : <><Play size={17} /> เล่นต่อ</>}</button><button type="button" disabled={room.queue.length === 0} onClick={() => { setSheet(null); setTab("queue"); }}><ListMusic size={17} /> เปิดคิว</button></div><div className="volume-row"><button type="button" disabled={!current || playbackSaving} onClick={() => updatePlayback({ muted: !room.playback?.muted })} aria-label={room.playback?.muted ? "เปิดเสียง" : "ปิดเสียง"}>{room.playback?.muted ? <VolumeX size={19} /> : <Volume2 size={19} />}</button><label>ระดับเสียง <output>{volumeDraft ?? room.playback?.volume ?? 75}%</output><input type="range" min="0" max="100" value={volumeDraft ?? room.playback?.volume ?? 75} disabled={!current || playbackSaving} onChange={changeVolume} /></label></div><p className="sheet-note">คำสั่งเล่น เสียง และคิวส่งเข้าจอ Host ของห้องนี้จริง</p></>}
             {sheet === "share" && <><p className="eyebrow">INVITATION · LIVE</p><h2>ชวนเพื่อนเข้าห้อง</h2><p className="sheet-subtitle">ห้อง {session.roomId} · ลิงก์นี้มี join token ใน fragment ที่ไม่ถูกส่งไปกับ request</p><label className="copy-field">ลิงก์เข้าร่วม<input readOnly value={partyJoinUrlFor(session.roomId, session.joinToken)} /></label><button type="button" className="sheet-action" onClick={shareRoom}><Copy size={16} /> คัดลอก / แชร์ลิงก์จริง</button></>}
             {sheet === "settings" && <><p className="eyebrow">ROOM SESSION · LIVE</p><h2>ข้อมูลห้อง</h2><p className="sheet-subtitle">คุณเข้าร่วมในชื่อ <strong>{session.displayName}</strong></p><div className="session-info"><span>ROOM</span><strong>{session.roomId}</strong><span>สถานะ</span><strong>{connected ? "เชื่อมต่อแล้ว" : "กำลังเชื่อมต่อ"}</strong></div><button type="button" className="sheet-danger" onClick={() => { clearSession(CONTROLLER_STORAGE_KEY); onRevoked(); }}>ออกจากห้องนี้</button></>}
           </section>

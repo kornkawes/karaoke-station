@@ -1,12 +1,14 @@
 import { expect, test } from "@playwright/test";
 
+const hostedPath = (joinPath) => joinPath.replace("/party#", "/party?ui=hosted#");
+
 /**
  * Full hosted flow against the real built app:
  * display creates a room -> QR encodes the join URL -> phone joins -> adds a song ->
  * the display sees it in realtime.
  */
 test("display opens a room and a phone joins and queues a song", async ({ page, context, request }) => {
-  await page.goto("/display");
+  await page.goto("/display?ui=hosted");
 
   // The display provisions its own room with no interaction.
   await expect(page.getByRole("heading", { name: "รอเพลงแรก", level: 2 })).toBeVisible();
@@ -29,14 +31,14 @@ test("display opens a room and a phone joins and queues a song", async ({ page, 
       value: async (payload) => { window.__sharedRoom = payload; }
     });
   });
-  await phone.goto(hostSession.joinPath);
+  await phone.goto(hostedPath(hostSession.joinPath));
   await expect(phone.getByLabel("ชื่อของคุณ")).toBeVisible();
   await phone.getByLabel("ชื่อของคุณ").fill("มือถือ QA");
   await phone.getByRole("button", { name: "เข้าร่วม" }).click();
   await expect(phone.getByRole("heading", { name: "ค้นหาเพลง" })).toBeVisible();
 
   // The fragment is stripped once consumed, so the token cannot be re-shared.
-  await expect(phone).toHaveURL(/\/party$/);
+  await expect(phone).toHaveURL(/\/party\?ui=hosted$/);
 
   const phoneFairQueueButton = phone.getByRole("button", { name: "เปิดคิวผลัดกันร้อง" });
   await expect(phoneFairQueueButton).toBeVisible();
@@ -134,12 +136,12 @@ test("display opens a room and a phone joins and queues a song", async ({ page, 
 });
 
 test("a controller cannot reach another room", async ({ page, context, request }) => {
-  await page.goto("/display");
+  await page.goto("/display?ui=hosted");
   await expect(page.getByText(/^ห้อง /)).toBeVisible();
   const roomA = await page.evaluate(() => JSON.parse(sessionStorage.getItem("karaoke.hostSession")));
 
   const phone = await context.newPage();
-  await phone.goto(roomA.joinPath);
+  await phone.goto(hostedPath(roomA.joinPath));
   await phone.getByLabel("ชื่อของคุณ").fill("ผู้ทดสอบ");
   await phone.getByRole("button", { name: "เข้าร่วม" }).click();
   await expect(phone.getByRole("heading", { name: "ค้นหาเพลง" })).toBeVisible();

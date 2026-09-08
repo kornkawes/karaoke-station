@@ -5,7 +5,8 @@ export const emptyPreviewRoom = {
   current: null,
   queue: [],
   stationName: "KaraokeStation",
-  settings: { fairQueue: false }
+  settings: { fairQueue: false },
+  playback: { playing: true, volume: 75, muted: false }
 };
 
 export function viewToPreviewRoom(view, previous = emptyPreviewRoom) {
@@ -16,7 +17,8 @@ export function viewToPreviewRoom(view, previous = emptyPreviewRoom) {
     current: normalized.current,
     queue: normalized.items,
     stationName: view?.stationName || previous.stationName || "KaraokeStation",
-    settings: view?.settings ?? previous.settings ?? { fairQueue: false }
+    settings: view?.settings ?? previous.settings ?? { fairQueue: false },
+    playback: view?.playback ?? previous.playback ?? { playing: true, volume: 75, muted: false }
   };
 }
 

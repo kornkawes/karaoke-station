@@ -61,7 +61,7 @@ async function boxes(page) {
 test.describe("hosted display layout", () => {
   test("all target viewports keep the quiet HUD usable", async ({ page }) => {
     await page.setViewportSize(VIEWPORTS[0]);
-    await page.goto("/display");
+    await page.goto("/display?ui=hosted");
     await expect(page.locator(".hosted-side")).toBeVisible();
 
     for (const viewport of VIEWPORTS) {
@@ -125,7 +125,7 @@ test.describe("hosted display layout", () => {
     });
 
     await page.setViewportSize({ width: 1600, height: 900 });
-    await page.goto("/display");
+    await page.goto("/display?ui=hosted");
     await expect(page.locator(".hosted-side")).toBeVisible();
     const wide = await boxes(page);
     expect(wide.video.width).toBeGreaterThanOrEqual(1599);
@@ -194,7 +194,7 @@ test.describe("hosted display layout", () => {
     });
 
     await page.setViewportSize({ width: 1366, height: 768 });
-    await page.goto("/display");
+    await page.goto("/display?ui=hosted");
     await expect(page.locator(".hosted-side")).toBeVisible();
 
     const session = await page.evaluate(() =>
@@ -247,7 +247,7 @@ test.describe("hosted display layout", () => {
    */
   test("queued songs survive when the player cannot load", async ({ page }) => {
     await page.setViewportSize({ width: 1366, height: 768 });
-    await page.goto("/display");
+    await page.goto("/display?ui=hosted");
     await expect(page.locator(".hosted-side")).toBeVisible();
 
     const session = await page.evaluate(() =>
@@ -281,7 +281,7 @@ test.describe("hosted display layout", () => {
 
   test("long song titles do not break the layout", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto("/display");
+    await page.goto("/display?ui=hosted");
     await expect(page.locator(".hosted-side")).toBeVisible();
 
     const session = await page.evaluate(() =>

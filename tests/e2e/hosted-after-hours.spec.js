@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const auth = (token) => ({ Authorization: `Bearer ${token}` });
+const hostedPath = (joinPath) => joinPath.replace("/party#", "/party?ui=hosted#");
 
 async function installFakeYouTube(page) {
   await page.addInitScript(() => {
@@ -24,7 +25,7 @@ async function installFakeYouTube(page) {
 async function openPairedRoom(page, context, phoneWidth = 390) {
   await installFakeYouTube(page);
   await page.setViewportSize({ width: 1600, height: 900 });
-  await page.goto("/display");
+  await page.goto("/display?ui=hosted");
   const host = await expect.poll(() => page.evaluate(() => {
     const value = sessionStorage.getItem("karaoke.hostSession");
     return value ? JSON.parse(value) : null;
@@ -34,7 +35,7 @@ async function openPairedRoom(page, context, phoneWidth = 390) {
 
   const phone = await context.newPage();
   await phone.setViewportSize({ width: phoneWidth, height: 844 });
-  await phone.goto(host.joinPath);
+  await phone.goto(hostedPath(host.joinPath));
   await phone.getByLabel("ชื่อของคุณ").fill("มือถือ QA");
   await phone.getByRole("button", { name: "เข้าร่วม" }).click();
   await expect(phone.getByRole("heading", { name: "ค้นหาเพลง" })).toBeVisible();
