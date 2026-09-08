@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Karaoke Station — Display preview</title>
+    <link rel="stylesheet" href="host-display.css" />
+  </head>
+  <body class="host-display-page">
+    <main class="display-stage" id="displayStage" aria-label="Karaoke Station display preview">
+      <img class="stage-media" src="assets/stage.png" alt="ภาพเวทีคอนเสิร์ตสำหรับการแสดงตัวอย่าง" />
+      <aside class="join-corner" aria-label="ข้อมูลห้องตัวอย่าง">
+        <div class="demo-qr" aria-hidden="true"></div>
+        <div>
+          <p>ROOM <strong>AH-2248</strong></p>
+          <small>SCAN TO JOIN · DEMO QR</small>
+          <span>DESIGN PREVIEW · ไม่ใช่วิดีโอหรือ QR จริง</span>
+        </div>
+      </aside>
+      <aside class="next-song" aria-label="เพลงถัดไป"><p>UP NEXT</p><strong id="nextSongTitle">ดวงใจ</strong><span id="nextSongMeta">PALMY · Mew</span></aside>
+      <div class="display-controls" data-controls>
+        <button class="fullscreen-control" id="fullscreenButton" type="button" aria-label="เข้าสู่โหมดเต็มหน้าจอ">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5" /></svg>
+          <span class="control-label">FULL SCREEN</span>
+        </button>
+      </div>
+      <p class="display-feedback" id="displayFeedback" role="status" aria-live="polite"></p>
+    </main>
+    <script src="demo-state.js"></script>
+    <script src="host-display.js"></script>
+  </body>
+</html>
