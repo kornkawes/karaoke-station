@@ -820,7 +820,11 @@ function ControllerView({ session, onRevoked }) {
   return (
     <main className="party hosted-party after-hours-remote">
       <header className="hosted-party-header">
-        <span className="party-brand"><Music2 size={17} /> KARAOKE STATION <i>AFTER HOURS</i><small>ห้อง {session.roomId}</small></span>
+        <span className="party-brand">
+          <Music2 size={17} />
+          <span className="party-brand-name">KARAOKE STATION <i>AFTER HOURS</i></span>
+          <small>ห้อง {session.roomId}</small>
+        </span>
         <div className="remote-header-actions">
           <button
             className="share-button-line"

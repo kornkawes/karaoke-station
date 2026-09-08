@@ -204,6 +204,13 @@ body.after-hours-hosted { min-width: 0; }
   line-height: 1.2;
 }
 .after-hours-remote .party-brand svg { color: var(--lime); }
+.after-hours-remote .party-brand-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.after-hours-remote .party-brand-name i { margin-left: 3px; }
 .after-hours-remote .party-brand i { font-style: italic; }
 .after-hours-remote .party-brand small {
   grid-column: 2;
