@@ -196,7 +196,7 @@ function PreviewDisplayView() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const stageRef = useRef(null);
-  const failureRef = useRef({ videoId: "", reported: false });
+  const failureRef = useRef({ videoId: "", count: 0 });
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -283,9 +283,32 @@ function PreviewDisplayView() {
 
   const reportFailure = useCallback(async (code) => {
     if (!session || !room.current) return;
-    if (failureRef.current.videoId === room.current.videoId && failureRef.current.reported) return;
-    failureRef.current = { videoId: room.current.videoId, reported: true };
-    const reason = { 2: "player_error", 5: "player_error", 100: "private", 101: "embed_disabled", 150: "embed_disabled" }[code] || "network";
+    const unplayable = {
+      2: "player_error",
+      5: "player_error",
+      100: "private",
+      101: "embed_disabled",
+      150: "embed_disabled"
+    };
+    const reason = unplayable[code];
+    if (!reason) {
+      // Loader/network failures are often transient (and common in restricted
+      // browsers/CI). Keep the queue item so the user can retry or skip it.
+      setNotice("โหลดวิดีโอไม่สำเร็จ กำลังลองใหม่");
+      return;
+    }
+
+    const videoId = room.current.videoId;
+    const tally = failureRef.current;
+    if (tally.videoId !== videoId) failureRef.current = { videoId, count: 1 };
+    else tally.count += 1;
+
+    if (failureRef.current.count < 2) {
+      setNotice("เล่นวิดีโอไม่สำเร็จ กำลังลองอีกครั้ง");
+      return;
+    }
+
+    failureRef.current = { videoId, count: 0 };
     setNotice("เพลงนี้เล่นไม่ได้ กำลังข้ามไปเพลงถัดไป");
     try {
       await hostedApi.currentFailure(session.roomId, session.token, reason, `YouTube error ${code}`);
@@ -642,26 +665,39 @@ function PreviewController({ session, onRevoked }) {
     const targetQueueId = room.current.queueId;
     setBusy("complete");
     try {
+      // Synchronize before the mutation so a delayed initial snapshot cannot leave
+      // the controller holding an obsolete revision.
+      const latest = await guard(() => hostedApi.queue(session.roomId, session.token));
+      const latestRoom = applyPreviewRoomView(latest, room);
+      setRoom(latestRoom);
+      if (!latestRoom.current || latestRoom.current.queueId !== targetQueueId) {
+        setNotice("คิวเปลี่ยนไปแล้ว กรุณาลองใหม่");
+        return;
+      }
+
       let result;
       try {
-        result = await guard(() => hostedApi.complete(session.roomId, session.token, room.revision));
+        result = await guard(() => hostedApi.complete(session.roomId, session.token, latestRoom.revision));
       } catch (requestError) {
         if (requestError.status !== 409) throw requestError;
 
-        // A socket snapshot can briefly lag behind another queue mutation. Refresh
-        // before retrying, but never complete a different song than the one the
-        // user saw when pressing the button.
-        const latest = await guard(() => hostedApi.queue(session.roomId, session.token));
-        const latestRoom = applyPreviewRoomView(latest, room);
-        setRoom(latestRoom);
-        if (!latestRoom.current || latestRoom.current.queueId !== targetQueueId) {
+        // A second client can still win the small gap between the refresh and the
+        // mutation. Retry only if the same song remains current after refreshing.
+        const retryView = await guard(() => hostedApi.queue(session.roomId, session.token));
+        const retryRoom = applyPreviewRoomView(retryView, latestRoom);
+        setRoom(retryRoom);
+        if (!retryRoom.current || retryRoom.current.queueId !== targetQueueId) {
           throw requestError;
         }
-        result = await guard(() => hostedApi.complete(session.roomId, session.token, latestRoom.revision));
+        result = await guard(() => hostedApi.complete(session.roomId, session.token, retryRoom.revision));
       }
       if (result?.queue) {
         setRoom((previous) => applyPreviewRoomView(result.queue, previous));
       }
+      // Read back the full authoritative room, including playback reset, rather
+      // than waiting for a socket event to arrive in the browser.
+      const authoritative = await guard(() => hostedApi.queue(session.roomId, session.token));
+      setRoom((previous) => applyPreviewRoomView(authoritative, previous));
       setNotice("จบเพลงแล้ว");
     } catch (requestError) {
       setNotice(requestError.message || "จบเพลงไม่สำเร็จ");
