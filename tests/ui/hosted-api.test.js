@@ -116,6 +116,24 @@ describe("request shaping", () => {
     expect(JSON.parse(options.body)).toEqual({ fairQueue: true });
   });
 
+  it("sends a bearer-authenticated playback patch without putting the token in the URL", async () => {
+    const spy = mockFetch(200, {
+      data: { revision: 5, playback: { playing: false, volume: 35, muted: true } }
+    });
+    await hostedApi.updatePlayback("ABCD2345", "controller-secret", {
+      playing: false,
+      volume: 35,
+      muted: true
+    });
+
+    const [url, options] = spy.mock.calls[0];
+    expect(url).toBe("/api/v1/rooms/ABCD2345/playback");
+    expect(url).not.toContain("controller-secret");
+    expect(options.method).toBe("PATCH");
+    expect(options.headers.Authorization).toBe("Bearer controller-secret");
+    expect(JSON.parse(options.body)).toEqual({ playing: false, volume: 35, muted: true });
+  });
+
   it("sends a room-scoped reorder with item, target index, and latest revision", async () => {
     const spy = mockFetch(200, { data: { revision: 9 } });
     await hostedApi.reorder("ABCD2345", "controller-token", "queue-item-8", 0, 8);

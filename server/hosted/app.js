@@ -39,6 +39,7 @@ import {
 } from "./auth.js";
 import {
   joinRequestSchema,
+  playbackPatchSchema,
   playNowSchema,
   revisionSchema,
   roomIdSchema
@@ -60,6 +61,11 @@ export function roomView(room) {
     revision: room.state.revision,
     stationName: room.state.settings.stationName,
     settings: { fairQueue: Boolean(room.state.settings.fairQueue) },
+    playback: {
+      playing: Boolean(room.state.playback.playing),
+      volume: room.state.playback.volume,
+      muted: Boolean(room.state.playback.muted)
+    },
     current: publicTrack(room.state.current),
     queue: room.state.queue.map(publicTrack),
     expiresAt: new Date(room.expiresAt).toISOString()
@@ -283,6 +289,13 @@ export async function createHostedApplication({
     }
   }
 
+  function resetPlaybackAfterTrackTransition(draft, previousCurrentId) {
+    const currentId = draft.current?.id ?? null;
+    if (currentId !== previousCurrentId) {
+      draft.playback.playing = Boolean(draft.current);
+    }
+  }
+
   function joinPathFor(room) {
     return `/party#room=${encodeURIComponent(room.roomId)}&join=${encodeURIComponent(room.joinToken)}`;
   }
@@ -365,6 +378,23 @@ export async function createHostedApplication({
       ? { fairQueue: Boolean(mutation.result.fairQueue) }
       : mutation.result;
     data(response, { revision: mutation.state.revision, settings });
+  }));
+
+  app.patch("/api/v1/rooms/:roomId/playback", memberAuth, asyncRoute(async (request, response) => {
+    const patch = playbackPatchSchema.parse(request.body);
+    const mutation = await store.mutate(request.room.roomId, (draft) => {
+      Object.assign(draft.playback, patch);
+      return draft.playback;
+    });
+    emitRoom(mutation.room, "room:changed");
+    data(response, {
+      revision: mutation.state.revision,
+      playback: {
+        playing: Boolean(mutation.result.playing),
+        volume: mutation.result.volume,
+        muted: Boolean(mutation.result.muted)
+      }
+    });
   }));
 
   // ---- Join (public, join token only) ---------------------------------------
@@ -460,12 +490,17 @@ export async function createHostedApplication({
     asyncRoute(async (request, response) => {
       const input = queueAddSchema.parse(request.body);
       const actorName = request.actor.role === "host" ? "Host" : request.actor.displayName;
-      const mutation = await store.mutate(request.room.roomId, (draft) => addToQueue(draft, input.track, {
-        playNow: request.actor.role === "host" ? input.playNow : false,
-        allowDuplicate: input.allowDuplicate,
-        requestedBy: actorName,
-        requesterKey: request.actor.role === "host" ? "host" : request.actor.controllerId
-      }));
+      const mutation = await store.mutate(request.room.roomId, (draft) => {
+        const previousCurrentId = draft.current?.id ?? null;
+        const result = addToQueue(draft, input.track, {
+          playNow: request.actor.role === "host" ? input.playNow : false,
+          allowDuplicate: input.allowDuplicate,
+          requestedBy: actorName,
+          requesterKey: request.actor.role === "host" ? "host" : request.actor.controllerId
+        });
+        resetPlaybackAfterTrackTransition(draft, previousCurrentId);
+        return result;
+      });
       emitRoom(mutation.room, "room:changed");
       const action = emitAction(mutation.room, {
         actor: actorName,
@@ -487,8 +522,11 @@ export async function createHostedApplication({
     asyncRoute(async (request, response) => {
       const input = revisionSchema.parse(request.body ?? {});
       const mutation = await store.mutate(request.room.roomId, (draft) => {
+        const previousCurrentId = draft.current?.id ?? null;
         if (input.revision !== undefined) assertRevision(draft, input.revision);
-        return removeQueueItem(draft, request.params.itemId);
+        const result = removeQueueItem(draft, request.params.itemId);
+        resetPlaybackAfterTrackTransition(draft, previousCurrentId);
+        return result;
       });
       const removed = mutation.result.removed ?? mutation.result.previous;
       emitRoom(mutation.room, "room:changed");
@@ -539,11 +577,14 @@ export async function createHostedApplication({
     asyncRoute(async (request, response) => {
       const input = revisionSchema.parse(request.body ?? {});
       const mutation = await store.mutate(request.room.roomId, (draft) => {
+        const previousCurrentId = draft.current?.id ?? null;
         if (input.revision !== undefined) assertRevision(draft, input.revision);
         if (!draft.current) {
           throw new AppError(409, "queue_has_no_current", "ไม่มีเพลงที่กำลังเล่นให้ข้าม");
         }
-        return advanceQueue(draft, { outcome: "skipped" });
+        const result = advanceQueue(draft, { outcome: "skipped" });
+        resetPlaybackAfterTrackTransition(draft, previousCurrentId);
+        return result;
       });
       emitRoom(mutation.room, "room:changed");
       const action = emitAction(mutation.room, {
@@ -566,8 +607,11 @@ export async function createHostedApplication({
     asyncRoute(async (request, response) => {
       const input = playNowSchema.parse(request.body);
       const mutation = await store.mutate(request.room.roomId, (draft) => {
+        const previousCurrentId = draft.current?.id ?? null;
         assertRevision(draft, input.revision);
-        return playQueueItemNow(draft, input.itemId);
+        const result = playQueueItemNow(draft, input.itemId);
+        resetPlaybackAfterTrackTransition(draft, previousCurrentId);
+        return result;
       });
       emitRoom(mutation.room, "room:changed");
       const action = emitAction(mutation.room, {
@@ -592,10 +636,13 @@ export async function createHostedApplication({
     asyncRoute(async (request, response) => {
       const input = revisionSchema.parse(request.body ?? {});
       const mutation = await store.mutate(request.room.roomId, (draft) => {
+        const previousCurrentId = draft.current?.id ?? null;
         // The display advances on track end. A stale revision here means another
         // client already advanced, so reject rather than double-skip a song.
         if (input.revision !== undefined) assertRevision(draft, input.revision);
-        return advanceQueue(draft);
+        const result = advanceQueue(draft);
+        resetPlaybackAfterTrackTransition(draft, previousCurrentId);
+        return result;
       });
       emitRoom(mutation.room, "room:changed");
       data(response, {
@@ -611,10 +658,15 @@ export async function createHostedApplication({
     hostAuth,
     asyncRoute(async (request, response) => {
       const input = queueFailureSchema.parse(request.body);
-      const mutation = await store.mutate(request.room.roomId, (draft) => advanceQueue(draft, {
-        outcome: "failed",
-        failureReason: { reason: input.reason, message: input.message ?? "" }
-      }));
+      const mutation = await store.mutate(request.room.roomId, (draft) => {
+        const previousCurrentId = draft.current?.id ?? null;
+        const result = advanceQueue(draft, {
+          outcome: "failed",
+          failureReason: { reason: input.reason, message: input.message ?? "" }
+        });
+        resetPlaybackAfterTrackTransition(draft, previousCurrentId);
+        return result;
+      });
       emitRoom(mutation.room, "room:changed");
       data(response, {
         revision: mutation.state.revision,

@@ -46,6 +46,11 @@ export function defaultRoomState() {
       lrclibEnabled: true,
       fairQueue: false
     },
+    playback: {
+      playing: true,
+      volume: 75,
+      muted: false
+    },
     current: null,
     queue: [],
     history: [],

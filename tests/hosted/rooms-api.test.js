@@ -442,6 +442,138 @@ describe("queue semantics", () => {
   });
 });
 
+describe("shared playback controls", () => {
+  it("lets a controller change playback and publishes the new room snapshot", async () => {
+    const room = await createRoom();
+    const controller = await joinRoom(room);
+    const changed = new Promise((resolve) => runtime.events.once("room:changed", resolve));
+
+    const response = await api("patch", `/api/v1/rooms/${room.roomId}/playback`)
+      .set("Authorization", `Bearer ${controller.token}`)
+      .send({ playing: false, volume: 42, muted: true })
+      .expect(200);
+    const event = await changed;
+
+    expect(response.body.data).toEqual({
+      revision: 1,
+      playback: { playing: false, volume: 42, muted: true }
+    });
+    expect(event).toMatchObject({
+      roomId: room.roomId,
+      view: {
+        revision: 1,
+        playback: { playing: false, volume: 42, muted: true }
+      }
+    });
+    expect(JSON.stringify(event)).not.toContain(controller.token);
+    expect(JSON.stringify(event)).not.toContain(room.hostToken);
+    expect(JSON.stringify(event)).not.toContain(room.joinToken);
+  });
+
+  it("lets the host use the same endpoint and exposes playback in room views", async () => {
+    const room = await createRoom();
+
+    await api("patch", `/api/v1/rooms/${room.roomId}/playback`)
+      .set("Authorization", `Bearer ${room.hostToken}`)
+      .send({ volume: 0 })
+      .expect(200);
+
+    const view = await api("get", `/api/v1/rooms/${room.roomId}`)
+      .set("Authorization", `Bearer ${room.hostToken}`)
+      .expect(200);
+    expect(view.body.data.playback).toEqual({ playing: true, volume: 0, muted: false });
+  });
+
+  it.each([
+    [{}, "empty patch"],
+    [{ volume: -1 }, "volume below zero"],
+    [{ volume: 101 }, "volume above one hundred"],
+    [{ volume: 42.5 }, "fractional volume"],
+    [{ playing: "yes" }, "non-boolean playing"],
+    [{ muted: 1 }, "non-boolean muted"],
+    [{ volume: 50, token: "secret" }, "unknown property"]
+  ])("rejects %s (%s) without changing state", async (patch) => {
+    const room = await createRoom();
+
+    const response = await api("patch", `/api/v1/rooms/${room.roomId}/playback`)
+      .set("Authorization", `Bearer ${room.hostToken}`)
+      .send(patch)
+      .expect(400);
+
+    expect(response.body.error.code).toBe("validation_error");
+    expect(runtime.store.require(room.roomId).state.playback).toEqual({
+      playing: true,
+      volume: 75,
+      muted: false
+    });
+    expect(runtime.store.require(room.roomId).state.revision).toBe(0);
+  });
+
+  it("rejects missing, cross-room, and expired controller credentials", async () => {
+    const roomA = await createRoom();
+    const roomB = await createRoom();
+    const controllerA = await joinRoom(roomA);
+
+    await api("patch", `/api/v1/rooms/${roomA.roomId}/playback`)
+      .send({ muted: true })
+      .expect(401);
+    await api("patch", `/api/v1/rooms/${roomB.roomId}/playback`)
+      .set("Authorization", `Bearer ${controllerA.token}`)
+      .send({ muted: true })
+      .expect(401);
+
+    runtime.store.require(roomA.roomId).controllers.get(controllerA.token).expiresAt = clock.value - 1;
+    const expired = await api("patch", `/api/v1/rooms/${roomA.roomId}/playback`)
+      .set("Authorization", `Bearer ${controllerA.token}`)
+      .send({ muted: true })
+      .expect(401);
+    expect(expired.body.error.code).toBe("controller_session_expired");
+    expect(runtime.store.require(roomA.roomId).state.playback.muted).toBe(false);
+  });
+
+  it("serializes partial updates so concurrent controls do not erase each other", async () => {
+    const room = await createRoom();
+    const controller = await joinRoom(room);
+
+    await Promise.all([
+      api("patch", `/api/v1/rooms/${room.roomId}/playback`)
+        .set("Authorization", `Bearer ${room.hostToken}`)
+        .send({ volume: 18 })
+        .expect(200),
+      api("patch", `/api/v1/rooms/${room.roomId}/playback`)
+        .set("Authorization", `Bearer ${controller.token}`)
+        .send({ muted: true })
+        .expect(200)
+    ]);
+
+    expect(runtime.store.require(room.roomId).state.playback).toEqual({
+      playing: true,
+      volume: 18,
+      muted: true
+    });
+    expect(runtime.store.require(room.roomId).state.revision).toBe(2);
+  });
+
+  it("starts a promoted track and stops playback when the queue becomes empty", async () => {
+    const room = await createRoom();
+    const controller = await joinRoom(room);
+
+    await api("patch", `/api/v1/rooms/${room.roomId}/playback`)
+      .set("Authorization", `Bearer ${controller.token}`)
+      .send({ playing: false })
+      .expect(200);
+    await addTrack(room, controller.token, videoA).expect(201);
+    expect(runtime.store.require(room.roomId).state.playback.playing).toBe(true);
+
+    await api("post", `/api/v1/rooms/${room.roomId}/queue/skip`)
+      .set("Authorization", `Bearer ${controller.token}`)
+      .send({})
+      .expect(200);
+    expect(runtime.store.require(room.roomId).state.current).toBeNull();
+    expect(runtime.store.require(room.roomId).state.playback.playing).toBe(false);
+  });
+});
+
 describe("secret non-disclosure", () => {
   it("reports search readiness without exposing configuration details", async () => {
     const response = await api("get", "/api/v1/health").expect(200);

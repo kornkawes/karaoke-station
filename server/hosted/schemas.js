@@ -18,6 +18,15 @@ export const playNowSchema = z.object({
   revision: z.number().int().nonnegative()
 }).strict();
 
+export const playbackPatchSchema = z.object({
+  playing: z.boolean(),
+  volume: z.number().int().min(0).max(100),
+  muted: z.boolean()
+}).strict().partial().refine(
+  (patch) => Object.keys(patch).length > 0,
+  { message: "At least one playback field is required" }
+);
+
 export const socketHandshakeSchema = z.object({
   roomId: roomIdSchema,
   token: tokenSchema

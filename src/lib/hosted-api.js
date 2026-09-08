@@ -60,6 +60,8 @@ export const hostedApi = {
   rotateRoom: (roomId, token) => request(roomPath(roomId, "/rotate"), { method: "POST", token }),
   updateSettings: (roomId, token, patch) =>
     request(roomPath(roomId, "/settings"), { method: "PATCH", token, body: patch }),
+  updatePlayback: (roomId, token, patch) =>
+    request(roomPath(roomId, "/playback"), { method: "PATCH", token, body: patch }),
 
   join: (roomId, joinToken, displayName) =>
     request(roomPath(roomId, "/join"), { method: "POST", body: { joinToken, displayName } }),

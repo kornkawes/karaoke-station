@@ -10,6 +10,7 @@ import {
   Mic2,
   Minimize2,
   Music2,
+  Pause,
   Play,
   Plus,
   RotateCcw,
@@ -19,6 +20,7 @@ import {
   Star,
   Trash2,
   Volume2,
+  VolumeX,
   Wifi,
   WifiOff,
   X
@@ -41,13 +43,15 @@ import {
 } from "./lib/hosted-api";
 import { loadYouTubeIframeApi } from "./lib/youtube";
 import "./hosted.css";
+import "./after-hours.css";
 
 const emptyRoomState = {
   revision: 0,
   current: null,
   queue: [],
   stationName: "KaraokeStation",
-  settings: { fairQueue: false }
+  settings: { fairQueue: false },
+  playback: { playing: true, volume: 75, muted: false }
 };
 
 const FAVORITES_STORAGE_KEY = "karaoke.favoriteTracks";
@@ -123,7 +127,8 @@ function viewToState(view, previous = {}) {
     current: queue.current,
     queue: queue.items,
     stationName: view.stationName || "KaraokeStation",
-    settings: view.settings ?? previous.settings ?? {}
+    settings: view.settings ?? previous.settings ?? {},
+    playback: view.playback ?? previous.playback ?? emptyRoomState.playback
   };
 }
 
@@ -159,17 +164,18 @@ function Toast({ message, onClose }) {
   );
 }
 
-function HostedPlayer({ track, onEnded, onError, onExitFullscreen, isFullscreen, containerRef, volume = 75 }) {
+function HostedPlayer({ track, onEnded, onError, onExitFullscreen, isFullscreen, containerRef, playback = emptyRoomState.playback }) {
   const rootRef = useRef(null);
   const playerRef = useRef(null);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
 
   const onEndedRef = useRef(onEnded);
   const onErrorRef = useRef(onError);
-  const volumeRef = useRef(volume);
+  const playbackRef = useRef(playback);
   onEndedRef.current = onEnded;
   onErrorRef.current = onError;
-  volumeRef.current = volume;
+  playbackRef.current = playback;
+  const trackKey = track ? `${track.queueId || ""}:${track.videoId}` : "";
 
   useEffect(() => {
     let cancelled = false;
@@ -183,11 +189,15 @@ function HostedPlayer({ track, onEnded, onError, onExitFullscreen, isFullscreen,
       rootRef.current.appendChild(mount);
       playerRef.current = new window.YT.Player(mount, {
         videoId: track.videoId,
-        playerVars: { autoplay: 1, playsinline: 1, rel: 0, origin: window.location.origin },
+        playerVars: { autoplay: playbackRef.current.playing ? 1 : 0, playsinline: 1, rel: 0, origin: window.location.origin },
         events: {
           onReady: ({ target }) => {
-            target.setVolume(volumeRef.current);
-            target.playVideo();
+            const next = playbackRef.current;
+            target.setVolume(next.volume);
+            if (next.muted) target.mute();
+            else target.unMute();
+            if (next.playing) target.playVideo();
+            else target.pauseVideo();
           },
           onStateChange: ({ data }) => {
             if (cancelled || ended) return;
@@ -221,13 +231,28 @@ function HostedPlayer({ track, onEnded, onError, onExitFullscreen, isFullscreen,
       playerRef.current = null;
       if (rootRef.current) rootRef.current.textContent = "";
     };
-  }, [track?.videoId]);
+  }, [trackKey]);
+
+  // Keep remote playback controls in sync without rebuilding the YouTube iframe.
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    try {
+      player.setVolume?.(playback.volume);
+      if (playback.muted) player.mute?.();
+      else player.unMute?.();
+      if (playback.playing) player.playVideo?.();
+      else player.pauseVideo?.();
+    } catch {
+      // The IFrame API may still be initializing. onReady applies the latest state.
+    }
+  }, [playback.playing, playback.volume, playback.muted]);
 
   const resumeWithSound = () => {
     const player = playerRef.current;
     if (!player) return;
     player.unMute?.();
-    player.setVolume?.(volumeRef.current);
+    player.setVolume?.(playbackRef.current.volume);
     player.playVideo?.();
     setAutoplayBlocked(false);
   };
@@ -425,6 +450,7 @@ function DisplayView() {
           onExitFullscreen={toggleFullscreen}
           isFullscreen={isFullscreen}
           containerRef={videoContainerRef}
+          playback={room.playback}
         />
 
         <header className="hosted-topbar" aria-label="สถานะจอคาราโอเกะ">
@@ -553,6 +579,13 @@ function ControllerView({ session, onRevoked }) {
   const [reorderMode, setReorderMode] = useState(false);
   const [movingQueueId, setMovingQueueId] = useState("");
   const [fairQueueSaving, setFairQueueSaving] = useState(false);
+  const [playbackSaving, setPlaybackSaving] = useState(false);
+  const [volumeDraft, setVolumeDraft] = useState(null);
+  const volumeTimer = useRef();
+  const playbackPending = useRef(null);
+  const playbackMutating = useRef(false);
+
+  useEffect(() => () => clearTimeout(volumeTimer.current), []);
 
   useEffect(() => connectRoom(session, (event) => {
     if (event.type === "connection") setConnected(event.connected);
@@ -721,6 +754,47 @@ function ControllerView({ session, onRevoked }) {
     }
   };
 
+  const flushPlayback = async () => {
+    if (playbackMutating.current || !playbackPending.current) return;
+    const patch = playbackPending.current;
+    playbackPending.current = null;
+    playbackMutating.current = true;
+    setPlaybackSaving(true);
+    try {
+      const result = await guard(() => hostedApi.updatePlayback(session.roomId, session.token, patch));
+      setRoom((old) => {
+        // A socket snapshot may already contain a newer remote command.
+        if (Number.isFinite(result.revision) && result.revision < old.revision) return old;
+        return {
+          ...old,
+          revision: Math.max(old.revision, result.revision ?? old.revision),
+          playback: { ...old.playback, ...(result.playback || patch) }
+        };
+      });
+    } catch (error) {
+      setNotice(error.message || "เปลี่ยนการเล่นเพลงไม่สำเร็จ");
+    } finally {
+      playbackMutating.current = false;
+      if (playbackPending.current) void flushPlayback();
+      else setPlaybackSaving(false);
+    }
+  };
+
+  const updatePlayback = (patch) => {
+    playbackPending.current = { ...(playbackPending.current || {}), ...patch };
+    void flushPlayback();
+  };
+
+  const changeVolume = (event) => {
+    const volume = Number(event.target.value);
+    setVolumeDraft(volume);
+    clearTimeout(volumeTimer.current);
+    volumeTimer.current = setTimeout(() => {
+      setVolumeDraft(null);
+      void updatePlayback({ volume });
+    }, 240);
+  };
+
   const shareRoom = () => {
     const joinUrl = partyJoinUrlFor(session.roomId, session.joinToken);
     if (!joinUrl) {
@@ -734,46 +808,68 @@ function ControllerView({ session, onRevoked }) {
         url: joinUrl
       }).catch(() => {});
     } else {
-      window.open(`https://line.me/R/msg/text/?${encodeURIComponent(`มาร้องคาราโอเกะด้วยกันที่ห้อง ${session.roomId}! 🎤\n${joinUrl}`)}`, "_blank");
+      const shareWindow = window.open(
+        `https://line.me/R/msg/text/?${encodeURIComponent(`มาร้องคาราโอเกะด้วยกันที่ห้อง ${session.roomId}! 🎤\n${joinUrl}`)}`,
+        "_blank",
+        "noopener,noreferrer"
+      );
+      if (shareWindow) shareWindow.opener = null;
     }
   };
 
   return (
-    <main className="party hosted-party">
+    <main className="party hosted-party after-hours-remote">
       <header className="hosted-party-header">
-        <span className="party-brand"><Music2 size={18} /> ห้อง {session.roomId}</span>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <span className="party-brand"><Music2 size={17} /> KARAOKE STATION <i>AFTER HOURS</i><small>ห้อง {session.roomId}</small></span>
+        <div className="remote-header-actions">
           <button
             className="share-button-line"
             onClick={shareRoom}
             title="แชร์เข้า LINE / Group Chat"
             aria-label="แชร์ลิงก์ห้องเข้า LINE หรือส่งให้เพื่อน"
           >
-            <Share2 size={14} /> แชร์ห้อง
+            <Share2 size={16} /> <span>แชร์</span>
           </button>
-          <span className={connected ? "connected" : "disconnected"}>
-            {connected ? <Wifi size={15} /> : <WifiOff size={15} />} {connected ? "เชื่อมต่อ" : "ขาดการเชื่อมต่อ"}
+          <span className={connected ? "connected remote-connection" : "disconnected remote-connection"}>
+            {connected ? <Wifi size={14} /> : <WifiOff size={14} />} <span className="sr-only">{connected ? "เชื่อมต่อ" : "ขาดการเชื่อมต่อ"}</span>
           </span>
         </div>
       </header>
 
-      <section className="now-playing">
-        <span>กำลังเล่นบนทีวี</span>
-        <strong>{room.current?.title || "ยังไม่มีเพลง"}</strong>
-        <button className="skip-link" onClick={skip} disabled={!room.current}>
-          <SkipForward size={16} /> Skip
-        </button>
+      <section className="now-playing remote-now-playing">
+        <div>
+          <span>กำลังเล่นบนทีวี</span>
+          <strong>{room.current?.title || "ยังไม่มีเพลง"}</strong>
+          <small>{room.current?.channelTitle || "เพิ่มเพลงจากแท็บค้นหา"}</small>
+        </div>
+        <div className="remote-playback-actions" aria-label="ควบคุมการเล่น">
+          <button className="remote-round-button" aria-label={room.playback?.playing ? "พักเพลง" : "เล่นเพลงต่อ"} onClick={() => updatePlayback({ playing: !room.playback?.playing })} disabled={!room.current || playbackSaving}>
+            {room.playback?.playing ? <Pause size={18} /> : <Play size={18} />}
+          </button>
+          <button className="remote-round-button" aria-label="ข้ามเพลง" onClick={skip} disabled={!room.current}>
+            <SkipForward size={18} />
+          </button>
+        </div>
       </section>
 
-      <div className="hosted-mobile-controls">
+      <div className="hosted-mobile-controls remote-controls-row">
+        <div className="remote-volume-control">
+          <button className="remote-volume-mute" aria-label={room.playback?.muted ? "เปิดเสียง" : "ปิดเสียง"} onClick={() => updatePlayback({ muted: !room.playback?.muted })} disabled={playbackSaving}>
+            {room.playback?.muted ? <VolumeX size={17} /> : <Volume2 size={17} />}
+          </button>
+          <label>เสียง <output>{volumeDraft ?? room.playback?.volume ?? 75}%</output>
+            <input aria-label="ระดับเสียง" type="range" min="0" max="100" value={volumeDraft ?? room.playback?.volume ?? 75} onChange={changeVolume} disabled={playbackSaving} />
+          </label>
+        </div>
         <button
-          className={`button secondary hosted-fair-queue-mobile-toggle${room.settings?.fairQueue ? " active" : ""}`}
+          className={`fair-queue-control${room.settings?.fairQueue ? " active" : ""}`}
+          aria-label={room.settings?.fairQueue ? "คิวผลัดกันร้อง: เปิด" : "เปิดคิวผลัดกันร้อง"}
           aria-pressed={Boolean(room.settings?.fairQueue)}
           onClick={toggleFairQueue}
           disabled={fairQueueSaving}
         >
-          <ArrowUpDown size={16} />
-          {room.settings?.fairQueue ? "คิวผลัดกันร้อง: เปิด" : "เปิดคิวผลัดกันร้อง"}
+          <span><strong>ผลัดกันร้อง</strong><small>{room.settings?.fairQueue ? "เปิดอยู่" : "ปิดอยู่"}</small></span>
+          <i aria-hidden="true" />
         </button>
       </div>
 
@@ -994,6 +1090,11 @@ function PartyView() {
 }
 
 export default function HostedApp() {
+  useEffect(() => {
+    document.body.classList.add("after-hours-hosted");
+    return () => document.body.classList.remove("after-hours-hosted");
+  }, []);
+
   const isParty = window.location.pathname === "/party" || window.location.pathname.startsWith("/remote");
   return isParty ? <PartyView /> : <DisplayView />;
 }

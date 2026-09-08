@@ -91,8 +91,9 @@ test("display opens a room and a phone joins and queues a song", async ({ page, 
   });
   expect(added.ok()).toBeTruthy();
 
-  // The display receives it over the socket without a reload.
-  await expect(page.getByRole("heading", { name: "เพลงทดสอบ Karaoke" })).toBeVisible({ timeout: 10_000 });
+  // The quiet display receives it over the socket in the compact top-centre title.
+  await expect(page.locator(".hosted-meta-text h1")).toHaveText("เพลงทดสอบ Karaoke", { timeout: 10_000 });
+  await expect(page.locator(".hosted-meta-text h1")).toBeVisible();
 
   // Add three waiting tracks, then reorder them from the phone UI.
   const waitingTitles = ["เพลงคิว A", "เพลงคิว B", "เพลงคิว C"];
