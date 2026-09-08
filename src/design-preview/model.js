@@ -22,6 +22,11 @@ export function viewToPreviewRoom(view, previous = emptyPreviewRoom) {
   };
 }
 
+export function applyPreviewRoomView(view, previous = emptyPreviewRoom) {
+  const next = viewToPreviewRoom(view, previous);
+  return next.revision >= previous.revision ? next : previous;
+}
+
 export function isDirectYouTubeInput(value) {
   const input = String(value || "").trim();
   return /(?:youtube\.com|youtu\.be)/i.test(input) || /^[A-Za-z0-9_-]{11}$/.test(input);

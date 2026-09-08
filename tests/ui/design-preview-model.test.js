@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyPreviewRoomView,
   emptyPreviewRoom,
   isDirectYouTubeInput,
   viewToPreviewRoom
@@ -61,6 +62,25 @@ describe("design preview hosted adapter", () => {
     );
 
     expect(next.settings).toEqual({ fairQueue: true });
+  });
+
+  it("ignores stale room snapshots after a newer realtime revision", () => {
+    const current = viewToPreviewRoom({
+      revision: 2,
+      current: { id: "current-id", videoId: "dQw4w9WgXcQ", title: "Current song" },
+      queue: [{ id: "next-id", videoId: "abcdefghijk", title: "Next song" }]
+    });
+
+    const stale = applyPreviewRoomView({ revision: 0, current: null, queue: [] }, current);
+    expect(stale).toBe(current);
+    expect(stale.current).toMatchObject({ queueId: "current-id" });
+
+    const fresh = applyPreviewRoomView({
+      revision: 3,
+      current: { id: "next-id", videoId: "abcdefghijk", title: "Next song" },
+      queue: []
+    }, current);
+    expect(fresh).toMatchObject({ revision: 3, current: { queueId: "next-id" }, queue: [] });
   });
 
   it("recognizes YouTube URLs and video IDs but not ordinary search text", () => {

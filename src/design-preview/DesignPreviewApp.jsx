@@ -40,10 +40,10 @@ import {
 import { loadYouTubeIframeApi } from "../lib/youtube";
 import stageImage from "../../design-preview/assets/stage.png";
 import {
+  applyPreviewRoomView,
   emptyPreviewRoom,
   isDirectYouTubeInput,
-  thumbnailFor,
-  viewToPreviewRoom
+  thumbnailFor
 } from "./model";
 import "../../design-preview/styles.css";
 import "../../design-preview/polish.css";
@@ -242,7 +242,7 @@ function PreviewDisplayView() {
     let live = true;
     hostedApi.room(session.roomId, session.token)
       .then((view) => {
-        if (live) setRoom((previous) => viewToPreviewRoom(view, previous));
+        if (live) setRoom((previous) => applyPreviewRoomView(view, previous));
       })
       .catch((requestError) => {
         if (!live) return;
@@ -260,7 +260,7 @@ function PreviewDisplayView() {
     if (!session) return undefined;
     return connectRoom(session, (event) => {
       if (event.type === "connection") setConnected(event.connected);
-      if (event.type === "room") setRoom((previous) => viewToPreviewRoom(event.view, previous));
+      if (event.type === "room") setRoom((previous) => applyPreviewRoomView(event.view, previous));
       if (event.type === "action" && event.action?.action === "add") {
         setNotice(`เพิ่ม “${event.action.track?.title || "เพลง"}” แล้ว`);
       }
@@ -515,14 +515,14 @@ function PreviewController({ session, onRevoked }) {
 
   useEffect(() => connectRoom(session, (event) => {
     if (event.type === "connection") setConnected(event.connected);
-    if (event.type === "room") setRoom((previous) => viewToPreviewRoom(event.view, previous));
+    if (event.type === "room") setRoom((previous) => applyPreviewRoomView(event.view, previous));
     if (event.type === "revoked") onRevoked();
   }), [session, onRevoked]);
 
   useEffect(() => {
     let live = true;
     hostedApi.queue(session.roomId, session.token)
-      .then((view) => { if (live) setRoom((previous) => viewToPreviewRoom(view, previous)); })
+      .then((view) => { if (live) setRoom((previous) => applyPreviewRoomView(view, previous)); })
       .catch((requestError) => {
         if (live && isSessionRevokedError(`${requestError.code} ${requestError.status}`)) onRevoked();
       });
@@ -652,7 +652,7 @@ function PreviewController({ session, onRevoked }) {
         // before retrying, but never complete a different song than the one the
         // user saw when pressing the button.
         const latest = await guard(() => hostedApi.queue(session.roomId, session.token));
-        const latestRoom = viewToPreviewRoom(latest, room);
+        const latestRoom = applyPreviewRoomView(latest, room);
         setRoom(latestRoom);
         if (!latestRoom.current || latestRoom.current.queueId !== targetQueueId) {
           throw requestError;
@@ -660,7 +660,7 @@ function PreviewController({ session, onRevoked }) {
         result = await guard(() => hostedApi.complete(session.roomId, session.token, latestRoom.revision));
       }
       if (result?.queue) {
-        setRoom((previous) => viewToPreviewRoom(result.queue, previous));
+        setRoom((previous) => applyPreviewRoomView(result.queue, previous));
       }
       setNotice("จบเพลงแล้ว");
     } catch (requestError) {
