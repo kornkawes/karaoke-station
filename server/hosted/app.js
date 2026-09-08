@@ -602,6 +602,36 @@ export async function createHostedApplication({
   );
 
   app.post(
+    "/api/v1/rooms/:roomId/queue/complete",
+    memberAuth,
+    asyncRoute(async (request, response) => {
+      const input = revisionSchema.parse(request.body ?? {});
+      const mutation = await store.mutate(request.room.roomId, (draft) => {
+        const previousCurrentId = draft.current?.id ?? null;
+        if (input.revision !== undefined) assertRevision(draft, input.revision);
+        if (!draft.current) {
+          throw new AppError(409, "queue_has_no_current", "ไม่มีเพลงที่กำลังเล่นให้จบ");
+        }
+        const result = advanceQueue(draft, { outcome: "completed" });
+        resetPlaybackAfterTrackTransition(draft, previousCurrentId);
+        return result;
+      });
+      emitRoom(mutation.room, "room:changed");
+      const action = emitAction(mutation.room, {
+        actor: request.actor.displayName ?? "Host",
+        action: "complete",
+        track: mutation.result.previous
+      });
+      data(response, {
+        revision: mutation.state.revision,
+        ...publicMutationResult(mutation.result),
+        action,
+        queue: queueView(mutation.state)
+      });
+    })
+  );
+
+  app.post(
     "/api/v1/rooms/:roomId/queue/play-now",
     memberAuth,
     asyncRoute(async (request, response) => {

@@ -89,6 +89,8 @@ export const hostedApi = {
     }),
   skip: (roomId, token, revision) =>
     request(roomPath(roomId, "/queue/skip"), { method: "POST", token, body: { revision } }),
+  complete: (roomId, token, revision) =>
+    request(roomPath(roomId, "/queue/complete"), { method: "POST", token, body: { revision } }),
   playNow: (roomId, token, itemId, revision) =>
     request(roomPath(roomId, "/queue/play-now"), {
       method: "POST",

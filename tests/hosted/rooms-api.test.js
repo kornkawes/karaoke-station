@@ -191,6 +191,31 @@ describe("role separation", () => {
       .expect(403);
   });
 
+  it("lets a controller complete the current song and records completed history", async () => {
+    const room = await createRoom();
+    const controller = await joinRoom(room);
+
+    await addTrack(room, room.hostToken, videoA).expect(201);
+    await addTrack(room, controller.token, videoB).expect(201);
+    const before = await api("get", `/api/v1/rooms/${room.roomId}/queue`)
+      .set("Authorization", `Bearer ${controller.token}`)
+      .expect(200);
+
+    await api("post", `/api/v1/rooms/${room.roomId}/queue/complete`)
+      .set("Authorization", `Bearer ${controller.token}`)
+      .send({ revision: before.body.data.revision })
+      .expect(200);
+
+    const history = await api("get", `/api/v1/rooms/${room.roomId}/history`)
+      .set("Authorization", `Bearer ${controller.token}`)
+      .expect(200);
+    expect(history.body.data.history[0]).toMatchObject({ title: videoA.title, status: "completed" });
+    const after = await api("get", `/api/v1/rooms/${room.roomId}/queue`)
+      .set("Authorization", `Bearer ${controller.token}`)
+      .expect(200);
+    expect(after.body.data.current.title).toBe(videoB.title);
+  });
+
   it("does not let a controller advance playback", async () => {
     const room = await createRoom();
     const controller = await joinRoom(room);
