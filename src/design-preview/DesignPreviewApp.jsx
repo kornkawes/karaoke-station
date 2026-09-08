@@ -639,9 +639,29 @@ function PreviewController({ session, onRevoked }) {
 
   const complete = async () => {
     if (!room.current || busy) return;
+    const targetQueueId = room.current.queueId;
     setBusy("complete");
     try {
-      await guard(() => hostedApi.complete(session.roomId, session.token, room.revision));
+      let result;
+      try {
+        result = await guard(() => hostedApi.complete(session.roomId, session.token, room.revision));
+      } catch (requestError) {
+        if (requestError.status !== 409) throw requestError;
+
+        // A socket snapshot can briefly lag behind another queue mutation. Refresh
+        // before retrying, but never complete a different song than the one the
+        // user saw when pressing the button.
+        const latest = await guard(() => hostedApi.queue(session.roomId, session.token));
+        const latestRoom = viewToPreviewRoom(latest, room);
+        setRoom(latestRoom);
+        if (!latestRoom.current || latestRoom.current.queueId !== targetQueueId) {
+          throw requestError;
+        }
+        result = await guard(() => hostedApi.complete(session.roomId, session.token, latestRoom.revision));
+      }
+      if (result?.queue) {
+        setRoom((previous) => viewToPreviewRoom(result.queue, previous));
+      }
       setNotice("จบเพลงแล้ว");
     } catch (requestError) {
       setNotice(requestError.message || "จบเพลงไม่สำเร็จ");
