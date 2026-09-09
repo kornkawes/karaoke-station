@@ -10,6 +10,7 @@ import {
   Pause,
   Play,
   Plus,
+  QrCode,
   Search,
   Settings,
   Share2,
@@ -52,6 +53,31 @@ import "../../design-preview/host-display.css";
 import "./runtime.css";
 
 const FAVORITES_KEY = "karaoke.preview.live.favorites";
+const HOST_PRESENTATION_KEY = "karaoke.hostPresentation";
+
+function hostPresentationKey(roomId) {
+  return roomId ? `${HOST_PRESENTATION_KEY}:${roomId}` : "";
+}
+
+function hasHostPresentation(roomId) {
+  const key = hostPresentationKey(roomId);
+  if (!key) return false;
+  try {
+    return sessionStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function clearHostPresentation(roomId) {
+  const key = hostPresentationKey(roomId);
+  if (!key) return;
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // Private-mode storage can be unavailable; the in-memory state still resets.
+  }
+}
 
 function readFavorites() {
   try {
@@ -191,12 +217,34 @@ function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyPreviewR
 function PreviewDisplayView() {
   const [session, setSession] = useState(() => readSession(HOST_STORAGE_KEY));
   const [room, setRoom] = useState(emptyPreviewRoom);
+  const [presenting, setPresenting] = useState(() => {
+    const initial = readSession(HOST_STORAGE_KEY);
+    return Boolean(initial?.roomId && hasHostPresentation(initial.roomId));
+  });
   const [connected, setConnected] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const stageRef = useRef(null);
   const failureRef = useRef({ videoId: "", count: 0 });
+
+  const enterPresentation = useCallback((controllerCount) => {
+    if (!session?.roomId || Number(controllerCount) <= 0) return;
+    try {
+      sessionStorage.setItem(hostPresentationKey(session.roomId), "1");
+    } catch {
+      // The transition remains valid for the current render even if storage is unavailable.
+    }
+    setPresenting(true);
+  }, [session?.roomId]);
+
+  useEffect(() => {
+    setPresenting(Boolean(session?.roomId && hasHostPresentation(session.roomId)));
+  }, [session?.roomId]);
+
+  useEffect(() => {
+    if (room.controllerCount > 0) enterPresentation(room.controllerCount);
+  }, [enterPresentation, room.controllerCount]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -211,6 +259,7 @@ function PreviewDisplayView() {
       const previous = session;
       if (previous?.roomId && previous?.token) {
         await hostedApi.closeRoom(previous.roomId, previous.token).catch(() => {});
+        clearHostPresentation(previous.roomId);
       }
       const created = await hostedApi.createRoom();
       const next = {
@@ -224,6 +273,7 @@ function PreviewDisplayView() {
       writeSession(HOST_STORAGE_KEY, next);
       setSession(next);
       setRoom(emptyPreviewRoom);
+      setPresenting(false);
       setConnected(false);
       setNotice("เปิดห้องใหม่แล้ว");
     } catch (requestError) {
@@ -261,6 +311,18 @@ function PreviewDisplayView() {
     return connectRoom(session, (event) => {
       if (event.type === "connection") setConnected(event.connected);
       if (event.type === "room") setRoom((previous) => applyPreviewRoomView(event.view, previous));
+      if (event.type === "presence") {
+        // New servers provide controllerCount. For older servers, `count`
+        // includes the Host socket, so subtract that one socket as a safe
+        // compatibility fallback.
+        const rawControllerCount = Number(event.controllerCount);
+        const rawSocketCount = Number(event.count);
+        const controllerCount = Number.isFinite(rawControllerCount)
+          ? rawControllerCount
+          : Math.max(0, (Number.isFinite(rawSocketCount) ? rawSocketCount : 0) - 1);
+        setRoom((previous) => ({ ...previous, controllerCount }));
+        if (controllerCount > 0) enterPresentation(controllerCount);
+      }
       if (event.type === "action" && event.action?.action === "add") {
         setNotice(`เพิ่ม “${event.action.track?.title || "เพลง"}” แล้ว`);
       }
@@ -270,7 +332,7 @@ function PreviewDisplayView() {
         setConnected(false);
       }
     });
-  }, [session]);
+  }, [enterPresentation, session]);
 
   const advance = useCallback(async () => {
     if (!session || !room.current) return;
@@ -363,30 +425,51 @@ function PreviewDisplayView() {
   // Rebuild the invite from the room-scoped token so the QR always encodes a
   // real, scannable controller URL after a refresh as well.
   const joinUrl = sessionJoinUrlFor(session);
+  const isPresenting = presenting || room.controllerCount > 0;
   return (
     <main className="host-display-page preview-functional-host">
       <section
         ref={stageRef}
-        className="display-stage"
+        className={`display-stage ${isPresenting ? "is-presenting" : "is-invite"}`}
+        data-display-mode={isPresenting ? "presentation" : "invite"}
         aria-label={room.current ? `จอเพลงจริง · ${room.current.title}` : "จอเพลงจริง · รอเพลงแรก"}
       >
         <PreviewYouTubeStage track={room.current} onEnded={advance} onError={reportFailure} playback={room.playback} />
 
-        <aside className="join-corner" aria-label="ข้อมูลห้องจริง">
-          <div className="real-qr"><QRCodeSVG value={joinUrl} size={160} bgColor="#f5f1e8" fgColor="#050607" /></div>
-          <div className="join-copy">
-            <p>ROOM <strong>{session.roomId}</strong></p>
-            <small>SCAN TO JOIN · LIVE ROOM</small>
-            <span>{connected ? "เชื่อมต่อกับเซิร์ฟเวอร์แล้ว" : "กำลังเชื่อมต่อเซิร์ฟเวอร์"}</span>
-            {joinUrl && <a className="join-link" href={joinUrl} target="_blank" rel="noreferrer"><Copy size={12} /> เปิดลิงก์เข้าห้อง</a>}
-            <div className="host-actions">
-              <button type="button" onClick={copyJoinLink}><Copy size={13} /> คัดลอกลิงก์</button>
-              <button type="button" onClick={createRoom} disabled={creating}><RotateIcon /> ห้องใหม่</button>
+        {!isPresenting && (
+          <aside className="join-corner invite-gate" aria-label="สแกน QR เพื่อเข้าห้อง">
+            <div className="invite-gate-qr">
+              <div className="real-qr"><QRCodeSVG value={joinUrl} size={224} bgColor="#f5f1e8" fgColor="#050607" /></div>
+              <button type="button" className="scan-qr-button" onClick={() => setNotice("ใช้กล้องมือถือสแกน QR นี้เพื่อเข้าห้อง") } disabled={!joinUrl}>
+                <QrCode size={15} /> SCAN QR TO JOIN
+              </button>
             </div>
-          </div>
-        </aside>
+            <div className="invite-gate-copy">
+              <p className="eyebrow">KARAOKE STATION · LIVE ROOM</p>
+              <h1>สแกนเพื่อเริ่มร้อง</h1>
+              <p className="invite-instruction">เปิดกล้องมือถือแล้วสแกน QR เพื่อเลือกเพลงและเข้าควบคุมห้อง</p>
+              <div className="invite-room"><span>ROOM</span><strong>{session.roomId}</strong><small><i className={connected ? "is-online" : ""} /> {connected ? "พร้อมให้เข้าห้อง" : "กำลังเชื่อมต่อ"}</small></div>
+              {joinUrl && <a className="join-link" href={joinUrl} target="_blank" rel="noreferrer"><Copy size={12} /> เปิดลิงก์เข้าห้องในหน้าต่างใหม่</a>}
+              <div className="host-actions">
+                <button type="button" onClick={copyJoinLink}><Copy size={13} /> คัดลอกลิงก์</button>
+                <button type="button" onClick={createRoom} disabled={creating}><RotateIcon /> ห้องใหม่</button>
+              </div>
+            </div>
+          </aside>
+        )}
 
-        <aside className="next-song" aria-label="เพลงถัดไป">
+        {isPresenting && (
+          <aside className="system-track-bar" aria-label="รายละเอียดเพลงจาก Karaoke Station">
+            <div className="system-track-copy">
+              <span className="system-track-kicker"><i /> {room.current ? "NOW PLAYING · LIVE" : "KARAOKE STATION · READY"}</span>
+              <strong title={room.current?.title || "รอเพลงแรก"}>{room.current?.title || "รอเพลงแรก · เลือกเพลงจากมือถือ"}</strong>
+              <small>{room.current ? `${room.current.channelTitle || "YouTube"} · ${room.stationName || "KaraokeStation"}` : "เพิ่มเพลงจากมือถือเพื่อเริ่มร้อง"} · ROOM {session.roomId}</small>
+            </div>
+            <span className={`system-track-status ${connected ? "is-online" : ""}`}>{connected ? "LIVE" : "กำลังเชื่อมต่อ"}</span>
+          </aside>
+        )}
+
+        <aside className="next-song up-next-chip" aria-label="เพลงถัดไป">
           <p>UP NEXT · {room.queue.length} เพลง</p>
           <strong>{next?.title || (room.current ? "ยังไม่มีเพลงถัดไป" : "รอเพลงแรก")}</strong>
           <span>{next ? `${next.channelTitle || "YouTube"} · ${next.requestedBy || "สมาชิกในห้อง"}` : "เพิ่มเพลงจากมือถือ"}</span>
@@ -779,7 +862,7 @@ function PreviewController({ session, onRevoked }) {
   return (
     <main className="mobile-preview preview-functional-app">
       <div className="desktop-context"><a href="/">← กลับหน้าจอ Host</a><p>LIVE MOBILE REMOTE<br />REAL ROOM · SOCKET SYNC</p></div>
-      <section className="phone" aria-label="Karaoke Station mobile remote">
+      <section className="phone" aria-label="Karaoke Station mobile remote" inert={Boolean(sheet)}>
         <header className="phone-header">
           <div>
             <a className="wordmark" href="/">KARAOKE STATION <i>AFTER HOURS</i></a>
@@ -875,12 +958,12 @@ function PreviewController({ session, onRevoked }) {
       {sheet && (
         <div className="sheet-root" onClick={(event) => { if (event.target === event.currentTarget) setSheet(null); }}>
           <div className="sheet-backdrop" onClick={() => setSheet(null)} />
-          <section className="remote-sheet" role="dialog" aria-modal="true">
+          <section className="remote-sheet" role="dialog" aria-modal="true" aria-labelledby="remoteSheetTitle">
             <button type="button" className="sheet-close" onClick={() => setSheet(null)} aria-label="ปิด"><X size={19} /></button>
             {sheet === "remote" && (
               <>
                 <p className="eyebrow">MOBILE REMOTE · LIVE</p>
-                <h2>{current?.title || "รอเพลงแรก"}</h2>
+                <h2 id="remoteSheetTitle">{current?.title || "รอเพลงแรก"}</h2>
                 <p className="sheet-subtitle">{current ? `${current.channelTitle || "YouTube"} · ห้อง ${session.roomId}` : "ยังไม่มีเพลงกำลังเล่น"}</p>
                 <div className="remote-primary">
                   <button
@@ -907,8 +990,8 @@ function PreviewController({ session, onRevoked }) {
                 <p className="sheet-note">คำสั่งเล่น เสียง และคิวส่งเข้าจอ Host ของห้องนี้จริง</p>
               </>
             )}
-            {sheet === "share" && <><p className="eyebrow">INVITATION · LIVE</p><h2>ชวนเพื่อนเข้าห้อง</h2><p className="sheet-subtitle">ห้อง {session.roomId} · ลิงก์นี้มี join token ใน fragment ที่ไม่ถูกส่งไปกับ request</p><label className="copy-field">ลิงก์เข้าร่วม<input readOnly value={partyJoinUrlFor(session.roomId, session.joinToken)} /></label><button type="button" className="sheet-action" onClick={shareRoom}><Copy size={16} /> คัดลอก / แชร์ลิงก์จริง</button></>}
-            {sheet === "settings" && <><p className="eyebrow">ROOM SESSION · LIVE</p><h2>ข้อมูลห้อง</h2><p className="sheet-subtitle">คุณเข้าร่วมในชื่อ <strong>{session.displayName}</strong></p><div className="session-info"><span>ROOM</span><strong>{session.roomId}</strong><span>สถานะ</span><strong>{connected ? "เชื่อมต่อแล้ว" : "กำลังเชื่อมต่อ"}</strong></div><button type="button" className="sheet-danger" onClick={() => { clearSession(CONTROLLER_STORAGE_KEY); onRevoked(); }}>ออกจากห้องนี้</button></>}
+            {sheet === "share" && <><p className="eyebrow">INVITATION · LIVE</p><h2 id="remoteSheetTitle">ชวนเพื่อนเข้าห้อง</h2><p className="sheet-subtitle">ห้อง {session.roomId} · ลิงก์นี้มี join token ใน fragment ที่ไม่ถูกส่งไปกับ request</p><label className="copy-field">ลิงก์เข้าร่วม<input readOnly value={partyJoinUrlFor(session.roomId, session.joinToken)} /></label><button type="button" className="sheet-action" onClick={shareRoom}><Copy size={16} /> คัดลอก / แชร์ลิงก์จริง</button></>}
+            {sheet === "settings" && <><p className="eyebrow">ROOM SESSION · LIVE</p><h2 id="remoteSheetTitle">ข้อมูลห้อง</h2><p className="sheet-subtitle">คุณเข้าร่วมในชื่อ <strong>{session.displayName}</strong></p><div className="session-info"><span>ROOM</span><strong>{session.roomId}</strong><span>สถานะ</span><strong>{connected ? "เชื่อมต่อแล้ว" : "กำลังเชื่อมต่อ"}</strong></div><button type="button" className="sheet-danger" onClick={() => { clearSession(CONTROLLER_STORAGE_KEY); onRevoked(); }}>ออกจากห้องนี้</button></>}
           </section>
         </div>
       )}

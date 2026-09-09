@@ -64,6 +64,14 @@ describe("design preview hosted adapter", () => {
     expect(next.settings).toEqual({ fairQueue: true });
   });
 
+  it("keeps the authoritative controller count for the host invite transition", () => {
+    const joined = viewToPreviewRoom({ revision: 4, controllerCount: 2, queue: [], current: null });
+    expect(joined.controllerCount).toBe(2);
+
+    const partial = viewToPreviewRoom({ revision: 5, queue: [], current: null }, joined);
+    expect(partial.controllerCount).toBe(2);
+  });
+
   it("ignores stale room snapshots after a newer realtime revision", () => {
     const current = viewToPreviewRoom({
       revision: 2,

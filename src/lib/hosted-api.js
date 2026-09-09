@@ -238,7 +238,13 @@ export function connectRoom({ roomId, token }, onEvent) {
   socket.on("room:snapshot", (view) => onEvent({ type: "room", view }));
   socket.on("room:changed", (view) => onEvent({ type: "room", view }));
   socket.on("room:action", (action) => onEvent({ type: "action", action }));
-  socket.on("room:presence", (presence) => onEvent({ type: "presence", count: presence.count }));
+  socket.on("room:presence", (presence) => onEvent({
+    type: "presence",
+    // Older hosted servers only sent the total socket count. Keep that field
+    // for compatibility and prefer the controller-only count when available.
+    count: presence.count,
+    controllerCount: presence.controllerCount
+  }));
   socket.on("room:revoked", (payload) => onEvent({ type: "revoked", code: payload.code }));
   socket.on("session:expired", () => onEvent({ type: "revoked", code: "session_expired" }));
 

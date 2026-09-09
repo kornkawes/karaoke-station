@@ -88,3 +88,96 @@
   .preview-functional-host .host-actions button{font-size:9px}
   .preview-functional-app .phone{height:100vh;height:100dvh}
 }
+
+/* Live host presentation --------------------------------------------------
+   The invite state is deliberately sparse: the QR is the only primary action
+   until the first controller joins. Once presence confirms a controller, the
+   lobby leaves the DOM and the video gets a clean system HUD. */
+.preview-functional-host .display-stage::after{position:absolute;inset:0;z-index:1;content:"";pointer-events:none;background:radial-gradient(circle at 50% 45%,transparent 0 28%,rgba(0,0,0,.28) 75%),linear-gradient(180deg,rgba(0,0,0,.2),transparent 30%,rgba(0,0,0,.18))}
+.preview-functional-host .display-stage.is-presenting::after{background:linear-gradient(180deg,rgba(0,0,0,.42),transparent 27%,transparent 78%,rgba(0,0,0,.22))}
+.preview-functional-host .invite-gate{position:absolute;top:50%;left:50%;z-index:7;display:grid;grid-template-columns:1fr;justify-items:center;width:min(470px,calc(100vw - 40px));max-width:none;margin:0;padding:26px 28px 24px;transform:translate(-50%,-50%);border:1px solid rgba(216,251,104,.45);border-radius:22px;background:linear-gradient(145deg,rgba(19,24,20,.96),rgba(5,7,8,.92));box-shadow:0 28px 80px rgba(0,0,0,.62),0 0 0 1px rgba(255,255,255,.06) inset;backdrop-filter:blur(16px);text-align:center;letter-spacing:normal;line-height:1.25;animation:invite-gate-in .24s ease both}
+.preview-functional-host .invite-gate-qr{display:grid;justify-items:center;gap:12px}
+.preview-functional-host .invite-gate .real-qr{width:224px;height:224px;flex-basis:224px;padding:0;border:0;border-radius:10px;background:#f5f1e8;box-shadow:0 12px 30px rgba(0,0,0,.5)}
+.preview-functional-host .invite-gate .real-qr svg{width:224px;height:224px}
+.preview-functional-host .scan-qr-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-width:224px;min-height:44px;padding:0 18px;border:1px solid var(--lime);border-radius:999px;background:var(--lime);color:var(--ink);font-size:11px;font-weight:900;letter-spacing:.12em;box-shadow:0 8px 22px rgba(216,251,104,.18)}
+.preview-functional-host .scan-qr-button:hover{background:#e7ff9a;border-color:#e7ff9a;transform:translateY(-1px)}
+.preview-functional-host .scan-qr-button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.preview-functional-host .invite-gate-copy{display:grid;justify-items:center;width:100%;min-width:0;margin-top:19px}
+.preview-functional-host .invite-gate-copy h1{margin:7px 0 7px;color:var(--paper);font-size:clamp(26px,3vw,36px);letter-spacing:-.065em;line-height:1}
+.preview-functional-host .invite-gate-copy .eyebrow{font-size:10px}
+.preview-functional-host .invite-instruction{max-width:340px;margin:0;color:var(--muted);font-size:12px;line-height:1.6}
+.preview-functional-host .invite-room{display:flex;align-items:baseline;justify-content:center;gap:9px;margin-top:15px;color:var(--muted);font-size:10px;letter-spacing:.14em}
+.preview-functional-host .invite-room strong{color:var(--paper);font-size:18px;letter-spacing:.16em}
+.preview-functional-host .invite-room small{display:inline-flex;align-items:center;gap:5px;margin-left:2px;color:var(--muted);font-size:10px;letter-spacing:.02em}
+.preview-functional-host .invite-room small i,.preview-functional-host .system-track-kicker i{display:inline-block;width:7px;height:7px;border-radius:50%;background:#777;box-shadow:none}
+.preview-functional-host .invite-room small i.is-online,.preview-functional-host .system-track-kicker i{background:var(--lime);box-shadow:0 0 0 4px rgba(216,251,104,.12)}
+.preview-functional-host .invite-gate .join-link{justify-content:center;margin-top:13px;font-size:10px;letter-spacing:.03em}
+.preview-functional-host .invite-gate .host-actions{justify-content:center;margin-top:15px}
+.preview-functional-host .invite-gate .host-actions button{min-height:36px;padding:0 11px;border-radius:8px;font-size:10px}
+.preview-functional-host .system-track-bar{position:absolute;top:0;left:0;right:0;z-index:6;display:flex;align-items:center;justify-content:space-between;gap:22px;min-height:78px;padding:13px clamp(20px,2.4vw,36px) 12px;background:rgba(5,6,7,.9);box-shadow:0 12px 28px rgba(0,0,0,.22);backdrop-filter:blur(14px);pointer-events:none}
+.preview-functional-host .system-track-copy{min-width:0;max-width:min(70vw,960px);display:grid;gap:3px}
+.preview-functional-host .system-track-kicker{display:flex;align-items:center;gap:7px;color:var(--lime);font-size:10px;font-weight:900;letter-spacing:.15em}
+.preview-functional-host .system-track-copy strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--paper);font-size:clamp(16px,1.7vw,25px);letter-spacing:-.035em;line-height:1.12}
+.preview-functional-host .system-track-copy small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11px;letter-spacing:.025em}
+.preview-functional-host .system-track-status{flex:0 0 auto;margin-right:126px;color:var(--muted);font-size:10px;font-weight:900;letter-spacing:.14em}
+.preview-functional-host .system-track-status.is-online{color:var(--lime)}
+.preview-functional-host .next-song.up-next-chip{top:96px;right:auto;bottom:auto;left:clamp(20px,2.4vw,36px);z-index:5;width:min(440px,calc(100vw - 48px));max-width:none;padding:12px 16px;border:1px solid rgba(245,241,232,.2);border-left:3px solid var(--lime);border-radius:13px;background:rgba(9,12,12,.78);box-shadow:0 14px 32px rgba(0,0,0,.35);backdrop-filter:blur(12px);text-shadow:none}
+.preview-functional-host .up-next-chip p{margin:0 0 5px;color:var(--lime);font-size:10px;letter-spacing:.16em}
+.preview-functional-host .up-next-chip strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:clamp(14px,1.25vw,18px);line-height:1.15;letter-spacing:-.025em}
+.preview-functional-host .up-next-chip span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:4px;color:var(--muted);font-size:11px}
+.preview-functional-host .display-stage.is-invite .next-song{visibility:hidden;opacity:0;pointer-events:none}
+.preview-functional-host .display-controls{z-index:8}
+
+@keyframes invite-gate-in{from{opacity:0;transform:translate(-50%,calc(-50% + 10px))}to{opacity:1;transform:translate(-50%,-50%)}}
+
+/* Mobile chrome uses flex tracks instead of subtracting fixed heights. This
+   keeps the scroll area bounded on short phones and in landscape. */
+.preview-functional-app .phone{display:flex;flex-direction:column;min-height:0;height:min(900px,100vh);height:min(900px,100dvh)}
+.preview-functional-app .phone-header{flex:0 0 84px;min-height:84px}
+.preview-functional-app .phone-content{flex:1 1 auto;height:auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding-bottom:24px}
+.preview-functional-app .now-dock{flex:0 0 70px;min-height:70px}
+.preview-functional-app .bottom-nav{flex:0 0 67px;min-height:67px;padding-bottom:env(safe-area-inset-bottom,0px)}
+.preview-functional-app .sheet-root{z-index:50}
+.preview-functional-app .sheet-root .remote-sheet{z-index:52}
+.preview-functional-app .toast{top:calc(10px + env(safe-area-inset-top,0px));right:auto;bottom:auto;z-index:100;display:flex;align-items:center;gap:8px;width:max-content;min-width:0;max-width:calc(100vw - 24px);padding:8px 10px 8px 12px;border-radius:10px;font-size:11px;line-height:1.35}
+.preview-functional-app .toast span{display:block;max-width:min(300px,calc(100vw - 74px));overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+.preview-functional-app .toast .icon-button{flex:0 0 32px;width:32px;height:32px;min-width:32px;padding:0;border:0;background:transparent}
+.preview-functional-app .toast:not(.show){transform:translate(-50%,-24px)}
+.preview-functional-app .toast.show{transform:translate(-50%,0)}
+
+@media(max-width:780px){
+  .preview-functional-host .invite-gate{width:min(420px,calc(100vw - 28px));padding:20px 18px 18px}
+  .preview-functional-host .invite-gate .real-qr,.preview-functional-host .invite-gate .real-qr svg{width:188px;height:188px}
+  .preview-functional-host .invite-gate .real-qr{flex-basis:188px}
+  .preview-functional-host .scan-qr-button{min-width:188px}
+  .preview-functional-host .system-track-bar{min-height:72px;padding-left:16px;padding-right:16px}
+  .preview-functional-host .system-track-copy{max-width:calc(100% - 70px)}
+  .preview-functional-host .system-track-status{margin-right:48px;font-size:9px}
+  .preview-functional-host .next-song.up-next-chip{top:87px;left:16px;width:calc(100vw - 32px)}
+}
+
+@media(max-width:520px){
+  .preview-functional-host .invite-gate{width:calc(100vw - 24px);padding:16px 14px 15px;border-radius:18px}
+  .preview-functional-host .invite-gate .real-qr,.preview-functional-host .invite-gate .real-qr svg{width:164px;height:164px}
+  .preview-functional-host .invite-gate .real-qr{flex-basis:164px}
+  .preview-functional-host .scan-qr-button{min-width:164px;min-height:40px;font-size:10px}
+  .preview-functional-host .invite-gate-copy{margin-top:14px}
+  .preview-functional-host .invite-gate-copy h1{font-size:27px}
+  .preview-functional-host .invite-instruction{font-size:11px}
+  .preview-functional-host .invite-room{margin-top:11px}
+  .preview-functional-host .invite-gate .host-actions{margin-top:11px}
+  .preview-functional-host .system-track-bar{min-height:84px;padding-top:10px;padding-bottom:9px}
+  .preview-functional-host .system-track-status{display:none}
+  .preview-functional-host .system-track-copy{max-width:calc(100% - 48px)}
+  .preview-functional-host .system-track-copy strong{font-size:15px}
+  .preview-functional-host .system-track-copy small{font-size:9px}
+  .preview-functional-host .next-song.up-next-chip{top:98px;padding:10px 12px}
+  .preview-functional-host .up-next-chip strong{font-size:14px}
+  .preview-functional-host .up-next-chip span{font-size:10px}
+}
+
+@media(max-height:560px){
+  .preview-functional-host .invite-gate{max-height:calc(100vh - 24px);overflow:auto}
+  .preview-functional-host .invite-gate .real-qr,.preview-functional-host .invite-gate .real-qr svg{width:148px;height:148px}
+  .preview-functional-host .invite-gate .real-qr{flex-basis:148px}
+}

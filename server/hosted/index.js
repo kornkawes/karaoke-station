@@ -147,9 +147,22 @@ function emitPresence(roomId) {
   presenceTimers.set(roomId, setTimeout(() => {
     presenceTimers.delete(roomId);
     const count = io.sockets.adapter.rooms.get(roomChannel(roomId))?.size ?? 0;
-    io.to(roomChannel(roomId)).emit("room:presence", { roomId, count });
+    const controllerCount = runtime.store.get(roomId)?.controllers?.size ?? 0;
+    io.to(roomChannel(roomId)).emit("room:presence", { roomId, count, controllerCount });
   }, 500));
 }
+
+// A controller is registered through REST before its Socket.IO connection is
+// established. Broadcast that authoritative count immediately so the Host can
+// leave the invite lobby without waiting for the socket debounce.
+runtime.events.on("room:presence", ({ roomId, controllerCount }) => {
+  const count = io.sockets.adapter.rooms.get(roomChannel(roomId))?.size ?? 0;
+  io.to(roomChannel(roomId)).emit("room:presence", {
+    roomId,
+    count,
+    controllerCount: Number(controllerCount) || 0
+  });
+});
 
 runtime.events.on("room:changed", ({ roomId, view }) => {
   io.to(roomChannel(roomId)).emit("room:changed", view);

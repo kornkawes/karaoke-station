@@ -241,6 +241,21 @@ describe("socket connection quota", () => {
 });
 
 describe("realtime room events", () => {
+  it("broadcasts the controller-only presence count after a join", async () => {
+    const room = await createRoom();
+    const hostSocket = await connectResult({ roomId: room.roomId, token: room.hostToken });
+    const presenceEvents = [];
+    hostSocket.on("room:presence", (payload) => presenceEvents.push(payload));
+
+    await joinRoom(room, "presence phone");
+    for (let attempt = 0; attempt < 20 && !presenceEvents.some((payload) => payload.controllerCount === 1); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    expect(presenceEvents.some((payload) => payload.controllerCount === 1)).toBe(true);
+    hostSocket.close();
+  });
+
   it("broadcasts a queue change to every member of the room only", async () => {
     const room = await createRoom();
     const other = await createRoom();
