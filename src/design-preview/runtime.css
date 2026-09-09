@@ -255,3 +255,67 @@
 .preview-functional-app .sheet-subtitle{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
 .preview-functional-app #joinTitle{display:flex;align-items:center;gap:8px}
 .preview-functional-app .session-info > span:first-child{display:flex}
+
+/* Room identity follow-up ---------------------------------------------- */
+.preview-functional-host .invite-brand{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 11px;color:var(--paper);font-size:11px;font-weight:900;letter-spacing:.25em;line-height:1;text-transform:uppercase}
+.preview-functional-host .invite-brand span{display:block;width:6px;height:6px;border-radius:50%;background:var(--lime);box-shadow:0 0 0 4px rgba(216,251,104,.12),0 0 18px rgba(216,251,104,.28)}
+.preview-functional-host .invite-brand strong{font-size:12px;letter-spacing:.25em}
+.preview-functional-host .invite-brand::after{display:block;width:26px;height:1px;content:"";background:linear-gradient(90deg,rgba(216,251,104,.8),rgba(216,251,104,0))}
+.preview-functional-host .room-icon,.preview-functional-app .room-icon{display:inline-block;vertical-align:middle;width:14px;height:14px;flex:0 0 auto;line-height:1}
+.preview-functional-host .invite-room{align-items:center;line-height:1}
+.preview-functional-host .invite-room .room-icon{width:18px;height:18px}
+.preview-functional-host .system-track-roomline{align-items:center;line-height:1.1}
+.preview-functional-host .system-track-roomline .room-icon{width:14px;height:14px}
+.preview-functional-app #joinTitle .room-icon{width:20px;height:20px}
+.preview-functional-app .phone-header p,.preview-functional-app .room-label,.preview-functional-app .live-callout strong,.preview-functional-app .queue-title .eyebrow,.preview-functional-app .history-title > p:last-child,.preview-functional-app .session-info > span:first-child{line-height:1}
+
+@media(max-width:520px){
+  .preview-functional-host .invite-brand{margin-bottom:9px;font-size:10px}
+  .preview-functional-host .invite-brand strong{font-size:11px}
+}
+
+/* Host HUD follow-up ---------------------------------------------------- */
+.preview-functional-host > .toast.host-toast{position:absolute;top:96px;left:clamp(20px,2.4vw,36px);right:auto;bottom:auto;z-index:9;display:inline-flex;align-items:center;gap:6px;width:max-content;max-width:min(420px,calc(100vw - 40px));min-height:28px;padding:4px 7px 4px 10px;border:1px solid rgba(216,251,104,.42);border-left:2px solid var(--lime);border-radius:8px;background:rgba(7,10,9,.68);box-shadow:0 10px 24px rgba(0,0,0,.28);backdrop-filter:blur(18px) saturate(150%);-webkit-backdrop-filter:blur(18px) saturate(150%);color:var(--paper);font-size:10px;font-weight:700;line-height:1.2;white-space:nowrap;overflow:hidden;opacity:0;transform:translateY(-8px);pointer-events:none;transition:opacity .18s ease,transform .18s ease}
+.preview-functional-host > .toast.host-toast.show{opacity:1;transform:translateY(0)}
+.preview-functional-host > .toast.host-toast > span{display:block;max-width:calc(100% - 24px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.preview-functional-host > .toast.host-toast .icon-button{width:22px;height:22px;min-width:22px;min-height:22px;flex:0 0 22px;padding:0;border:0;background:transparent;color:var(--muted)}
+.preview-functional-host > .toast.host-toast .icon-button svg{width:14px;height:14px}
+
+.preview-functional-host .system-track-bar{grid-template-columns:minmax(0,1.16fr) minmax(250px,.72fr) auto}
+.preview-functional-host .system-track-kicker{min-width:0;overflow:hidden;white-space:nowrap}
+.preview-functional-host .system-track-kicker-label{flex:0 0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.preview-functional-host .system-track-kicker .system-track-roomline{display:inline-flex;align-items:center;gap:4px;flex:0 0 auto;margin-left:4px;color:var(--muted);font-size:9px;font-weight:800;letter-spacing:.12em;line-height:1}
+.preview-functional-host .system-track-kicker .system-track-roomline .room-icon{width:14px;height:14px}
+.preview-functional-host .system-track-kicker .system-track-roomline > span{line-height:1}
+.preview-functional-host .system-track-copy > .system-track-source{display:block;grid-column:auto;grid-row:auto;min-height:0;margin:0;padding:0;border:0;overflow:hidden;color:var(--muted);font-size:11px;line-height:1.15}
+.preview-functional-host .system-track-copy > .system-track-source strong{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.025em}
+.preview-functional-host .system-track-copy > .system-track-source.is-empty{visibility:hidden}
+.preview-functional-host .system-track-status i{--live-glow:rgba(255,98,93,.16);animation:live-status-breathe 2.2s ease-in-out infinite;box-shadow:0 0 0 3px var(--live-glow)}
+.preview-functional-host .system-track-status.is-online i{--live-glow:rgba(216,251,104,.16)}
+
+@keyframes live-status-breathe{
+  0%,100%{opacity:.58;transform:scale(.84);box-shadow:0 0 0 3px var(--live-glow)}
+  50%{opacity:1;transform:scale(1);box-shadow:0 0 0 5px var(--live-glow),0 0 16px var(--live-glow)}
+}
+
+@media(max-width:900px){
+  .preview-functional-host .system-track-bar{grid-template-columns:minmax(0,1fr) minmax(180px,.7fr) auto}
+}
+
+@media(max-width:700px){
+  .preview-functional-host .system-track-bar{grid-template-columns:minmax(0,1fr) auto;min-height:96px}
+  .preview-functional-host .system-track-copy{grid-column:1;grid-row:1}
+  .preview-functional-host .system-track-status{grid-column:2;grid-row:1;margin-right:40px}
+  .preview-functional-host .system-up-next{grid-column:1 / -1;grid-row:2}
+  .preview-functional-host > .toast.host-toast{top:106px}
+}
+
+@media(max-width:520px){
+  .preview-functional-host > .toast.host-toast{top:96px;left:16px;max-width:calc(100vw - 32px);font-size:9px}
+  .preview-functional-host .system-track-copy > .system-track-source strong{font-size:9px}
+  .preview-functional-host .system-track-kicker .system-track-roomline{font-size:8px}
+}
+
+@media(prefers-reduced-motion:reduce){
+  .preview-functional-host .system-track-status i{animation-duration:4s}
+}

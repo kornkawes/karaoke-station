@@ -112,10 +112,10 @@ function RoomIcon({ size = 14, className = "" }) {
   return <DoorOpen className={`room-icon ${className}`.trim()} size={size} aria-hidden="true" />;
 }
 
-function Toast({ message, onClose }) {
+function Toast({ message, onClose, className = "" }) {
   if (!message) return null;
   return (
-    <div className="toast show" role="status" aria-live="polite">
+    <div className={`toast show ${className}`.trim()} role="status" aria-live="polite">
       <span>{message}</span>
       <button type="button" className="icon-button" aria-label="ปิดข้อความ" onClick={onClose}><X size={16} /></button>
     </div>
@@ -253,7 +253,7 @@ function PreviewDisplayView() {
 
   useEffect(() => {
     if (!notice) return undefined;
-    const timer = setTimeout(() => setNotice(""), 3_000);
+    const timer = setTimeout(() => setNotice(""), 2_000);
     return () => clearTimeout(timer);
   }, [notice]);
 
@@ -419,7 +419,7 @@ function PreviewDisplayView() {
   const joinUrl = sessionJoinUrlFor(session);
   const isPresenting = presenting || room.controllerCount > 0;
   return (
-    <main className="host-display-page preview-functional-host">
+    <main className={`host-display-page preview-functional-host ${isPresenting ? "is-presenting" : "is-invite"}`}>
       <section
         ref={stageRef}
         className={`display-stage ${isPresenting ? "is-presenting" : "is-invite"}`}
@@ -430,6 +430,7 @@ function PreviewDisplayView() {
 
         {!isPresenting && (
           <aside className="join-corner invite-gate" aria-label="สแกน QR เพื่อเข้าห้อง">
+            <p className="invite-brand" aria-label="KAVAOKE"><span aria-hidden="true" /><strong>KAVAOKE</strong></p>
             <div className="invite-gate-qr">
               <div className="real-qr"><QRCodeSVG value={joinUrl} size={224} bgColor="#f5f1e8" fgColor="#050607" /></div>
               <button type="button" className="scan-qr-button" onClick={() => setNotice("ใช้กล้องมือถือสแกน QR นี้เพื่อเข้าห้อง") } disabled={!joinUrl}>
@@ -448,12 +449,15 @@ function PreviewDisplayView() {
         {isPresenting && (
           <aside className="system-track-bar" aria-label="รายละเอียดเพลงจาก Karaoke Station">
             <div className="system-track-copy">
-              <span className="system-track-kicker"><i /> {room.current ? "NOW PLAYING" : "KARAOKE STATION · READY"}</span>
+              <span className="system-track-kicker">
+                <i />
+                <span className="system-track-kicker-label">{room.current ? "NOW PLAYING" : "KARAOKE STATION · READY"}</span>
+                <span className="system-track-roomline"><RoomIcon size={14} /><span>{session.roomId}</span></span>
+              </span>
               <strong title={room.current?.title || "ยังไม่มีเพลงที่เลือกไว้"}>{room.current?.title || "ยังไม่มีเพลงที่เลือกไว้"}</strong>
-              <small className="system-track-roomline">KAVAOKE | <RoomIcon size={11} /> {session.roomId}</small>
-            </div>
-            <div className={`system-track-source ${room.current ? "has-source" : "is-empty"}`} aria-label={room.current ? `ช่อง YouTube ${room.current.channelTitle || "YouTube"}` : undefined}>
-              {room.current && <strong title={room.current.channelTitle || "YouTube"}>{room.current.channelTitle || "YouTube"}</strong>}
+              <small className={`system-track-source ${room.current ? "has-source" : "is-empty"}`} aria-label={room.current ? `ช่อง YouTube ${room.current.channelTitle || "YouTube"}` : undefined}>
+                {room.current && <strong title={room.current.channelTitle || "YouTube"}>{room.current.channelTitle || "YouTube"}</strong>}
+              </small>
             </div>
             <div className="system-up-next">
               <div className="next-song up-next-chip" aria-label="เพลงถัดไป">
@@ -478,7 +482,7 @@ function PreviewDisplayView() {
           </button>
         </div>
       </section>
-      <Toast message={notice} onClose={() => setNotice("")} />
+      <Toast message={notice} className="host-toast" onClose={() => setNotice("")} />
     </main>
   );
 }
@@ -613,7 +617,7 @@ function PreviewController({ session, onRevoked }) {
 
   useEffect(() => {
     if (!notice) return undefined;
-    const timer = setTimeout(() => setNotice(""), 3_000);
+    const timer = setTimeout(() => setNotice(""), 2_000);
     return () => clearTimeout(timer);
   }, [notice]);
 

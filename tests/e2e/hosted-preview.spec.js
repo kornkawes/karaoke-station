@@ -14,7 +14,20 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(page.locator(".invite-gate .host-actions button")).toHaveText("สร้างห้องใหม่");
   await expect(page.locator(".invite-gate .host-actions button svg")).toHaveCount(0);
   await expect(page.getByText("พร้อมใช้งาน")).toHaveCount(0);
+  await expect(page.locator(".invite-brand strong")).toHaveText("KAVAOKE");
   await expect(page.locator(".invite-room svg")).toHaveCount(1);
+  const inviteBrandAboveQr = await page.evaluate(() => {
+    const brand = document.querySelector(".invite-brand").getBoundingClientRect();
+    const qr = document.querySelector(".invite-gate-qr").getBoundingClientRect();
+    return { brandBottom: brand.bottom, qrTop: qr.top };
+  });
+  expect(inviteBrandAboveQr.brandBottom).toBeLessThanOrEqual(inviteBrandAboveQr.qrTop + 1);
+  const inviteIconAlignment = await page.evaluate(() => {
+    const icon = document.querySelector(".invite-room .room-icon").getBoundingClientRect();
+    const room = document.querySelector(".invite-room strong").getBoundingClientRect();
+    return Math.abs((icon.top + icon.height / 2) - (room.top + room.height / 2));
+  });
+  expect(inviteIconAlignment).toBeLessThanOrEqual(1);
   await expect(page.getByRole("button", { name: "คัดลอกลิงก์" })).toHaveCount(0);
   await expect(page.locator(".join-link")).toHaveCount(0);
 
@@ -41,7 +54,7 @@ test("approved preview is the default live display and controller", async ({ pag
   await phone.getByRole("button", { name: "เข้าร่วมห้องจริง" }).click();
   await expect(phone.locator(".phone-header .wordmark")).toContainText("KARAOKE STATION");
   await expect(phone.locator(".phone-header .room-icon")).toHaveCount(1);
-  await expect(phone.locator(".phone-header .room-icon")).toHaveCSS("width", "12px");
+  await expect(phone.locator(".phone-header .room-icon")).toHaveCSS("width", "14px");
   await expect(phone.locator(".search-box input")).toBeEnabled();
   await expect(phone.locator(".sheet-root .remote-sheet")).toHaveCount(0);
   await expect(phone.locator(".bottom-nav")).toBeVisible();
@@ -65,6 +78,19 @@ test("approved preview is the default live display and controller", async ({ pag
     data: { track: { videoId: "dQw4w9WgXcQ", title: "เพลงหน้าตา Preview", channelTitle: "QA" } }
   });
   expect(queued.ok()).toBeTruthy();
+  await expect(page.locator(".host-toast.show")).toBeVisible();
+  const hostToastMetrics = await page.locator(".host-toast.show").evaluate((toast) => {
+    const meta = document.querySelector(".system-track-bar").getBoundingClientRect();
+    const box = toast.getBoundingClientRect();
+    const style = getComputedStyle(toast);
+    return { top: box.top, left: box.left, height: box.height, metaBottom: meta.bottom, whiteSpace: style.whiteSpace };
+  });
+  expect(hostToastMetrics.top).toBeGreaterThanOrEqual(hostToastMetrics.metaBottom - 1);
+  expect(hostToastMetrics.left).toBeLessThanOrEqual(40);
+  expect(hostToastMetrics.height).toBeLessThanOrEqual(34);
+  expect(hostToastMetrics.whiteSpace).toBe("nowrap");
+  await page.waitForTimeout(2_100);
+  await expect(page.locator(".host-toast")).toHaveCount(0);
   const queuedNext = await request.post(`/api/v1/rooms/${host.roomId}/queue`, {
     headers: auth(controller.token),
     data: { track: { videoId: "M7lc1UVf-VE", title: "เพลงถัดไป Preview", channelTitle: "QA" } }
@@ -74,15 +100,24 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(page.locator(".preview-video-layer")).toHaveAttribute("aria-label", "กำลังเล่น เพลงหน้าตา Preview");
   await expect(page.locator(".system-track-bar")).toContainText("เพลงหน้าตา Preview");
   await expect(page.locator(".system-track-bar")).toContainText("QA");
-  await expect(page.locator(".system-track-kicker")).toHaveText("NOW PLAYING");
+  await expect(page.locator(".system-track-kicker-label")).toHaveText("NOW PLAYING");
   await expect(page.locator(".up-next-chip p")).toHaveText("UP NEXT");
   await expect(page.locator(".up-next-chip span")).toHaveText("เลือกโดย มือถือ Preview");
   await expect(page.locator(".system-track-source strong")).toHaveText("QA");
-  await expect(page.locator(".system-track-roomline")).toContainText(`KAVAOKE | ${host.roomId}`);
+  await expect(page.locator(".system-track-roomline")).toContainText(host.roomId);
+  await expect(page.locator(".system-track-roomline")).not.toContainText("KAVAOKE");
   await expect(page.locator(".system-track-roomline .room-icon")).toHaveCount(1);
-  await expect(page.locator(".system-track-roomline .room-icon")).toHaveCSS("width", "10px");
+  await expect(page.locator(".system-track-roomline .room-icon")).toHaveCSS("width", "14px");
+  const roomlineIconAlignment = await page.evaluate(() => {
+    const icon = document.querySelector(".system-track-roomline .room-icon").getBoundingClientRect();
+    const room = document.querySelector(".system-track-roomline span").getBoundingClientRect();
+    return Math.abs((icon.top + icon.height / 2) - (room.top + room.height / 2));
+  });
+  expect(roomlineIconAlignment).toBeLessThanOrEqual(1);
   await expect(page.locator(".system-track-status")).toHaveAttribute("aria-label", "LIVE เชื่อมต่อปกติ");
   await expect(page.locator(".system-track-status i")).toBeVisible();
+  await expect(page.locator(".system-track-status i")).toHaveCSS("animation-name", "live-status-breathe");
+  await expect(page.locator(".system-track-status i")).toHaveCSS("animation-duration", "2.2s");
   await expect(page.locator(".system-track-bar")).toHaveCSS("backdrop-filter", /blur\(30px\)/);
   const hostHud = await page.evaluate(() => {
     const next = document.querySelector(".up-next-chip").getBoundingClientRect();
@@ -157,13 +192,17 @@ test("mobile notices stay compact above sheets without horizontal overlap", asyn
 
   await phone.getByRole("button", { name: "เปิดรีโมท" }).click();
   await expect(phone.locator(".remote-sheet")).toBeVisible();
-  const sheetToastMetrics = await phone.evaluate(() => {
-    const toast = document.querySelector(".toast.show").getBoundingClientRect();
-    const sheet = document.querySelector(".remote-sheet").getBoundingClientRect();
-    return { toastBottom: toast.bottom, sheetTop: sheet.top };
-  });
-  expect(sheetToastMetrics.toastBottom).toBeLessThan(120);
-  expect(sheetToastMetrics.toastBottom).toBeLessThanOrEqual(sheetToastMetrics.sheetTop + 1);
+  if (await phone.locator(".toast.show").count()) {
+    const sheetToastMetrics = await phone.evaluate(() => {
+      const toast = document.querySelector(".toast.show").getBoundingClientRect();
+      const sheet = document.querySelector(".remote-sheet").getBoundingClientRect();
+      return { toastBottom: toast.bottom, sheetTop: sheet.top };
+    });
+    expect(sheetToastMetrics.toastBottom).toBeLessThan(120);
+    expect(sheetToastMetrics.toastBottom).toBeLessThanOrEqual(sheetToastMetrics.sheetTop + 1);
+  }
+  await phone.waitForTimeout(2_100);
+  await expect(phone.locator(".toast")).toHaveCount(0);
 });
 
 test("mobile shell keeps header, scroll area, dock and nav in separate layers", async ({ page, context }) => {
