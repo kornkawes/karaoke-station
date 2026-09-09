@@ -10,7 +10,8 @@ import { CONTROLLER_TTL_MS, generateToken, safeEqual } from "./rooms.js";
  *
  *   hostToken       — created with the room, shown only on /display, never in a URL
  *   joinToken       — handed out via the QR fragment, exchanges for a controllerToken
- *   controllerToken — short-lived, queue permissions only
+ *   controllerToken — short-lived, shared room controls (queue, playback,
+ *                     fair-queue mode, history, and completing the current song)
  *
  * Roles are stored in separate places (room.hostToken vs room.controllers), so a
  * token of one role can never authenticate as the other.

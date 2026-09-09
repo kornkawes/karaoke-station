@@ -34,8 +34,8 @@ import {
   consumeJoinFragment,
   hostedApi,
   isSessionRevokedError,
-  joinUrlFor,
   partyJoinUrlFor,
+  sessionJoinUrlFor,
   normalizeQueue,
   normalizeTrack,
   readSession,
@@ -438,7 +438,7 @@ function DisplayView() {
     );
   }
 
-  const joinUrl = joinUrlFor(session.joinPath);
+  const joinUrl = sessionJoinUrlFor(session);
 
   return (
     <main className="hosted-display">

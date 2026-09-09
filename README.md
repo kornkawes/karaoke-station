@@ -55,7 +55,7 @@ Hosted mode ไม่มี loopback เป็น trust boundary อีกต่
 |---|---|---|
 | `hostToken` | 256-bit, sessionStorage ของจอหลักเท่านั้น | สร้าง/ปิด/rotate ห้อง, settings, advance เพลง, lyrics |
 | `joinToken` | 256-bit, อยู่ใน URL fragment `#join=` | แลกเป็น controllerToken เท่านั้น |
-| `controllerToken` | 256-bit, อายุ 12 ชม. | คิวเท่านั้น: add/remove/reorder/skip/play-now |
+| `controllerToken` | 256-bit, อายุ 12 ชม. | คิว + ควบคุมการเล่น + fair queue + อ่านประวัติ + จบเพลงปัจจุบัน |
 
 - ทุก route และทุก Socket event scope ด้วย `roomId` — controller ห้อง A แตะห้อง B ไม่ได้
 - host token ใช้เป็น controller token ไม่ได้ และกลับกัน
@@ -77,7 +77,8 @@ Base path `/api/v1` envelope เหมือนเดิม (`{data}` / `{error:
 | GET | `/rooms/:roomId` | host | มุมมองเต็มรวม settings/history |
 | DELETE | `/rooms/:roomId` | host | ปิดห้อง + revoke ทุก token |
 | POST | `/rooms/:roomId/rotate` | host | เปลี่ยน token ทั้งชุด |
-| PATCH | `/rooms/:roomId/settings` | host | |
+| PATCH | `/rooms/:roomId/settings` | host หรือ controller | controller เปลี่ยนได้เฉพาะ `fairQueue` |
+| PATCH | `/rooms/:roomId/playback` | host หรือ controller | เล่น/พัก, ระดับเสียง, mute |
 | POST | `/rooms/:roomId/join` | joinToken | คืน controllerToken |
 | GET | `/rooms/:roomId/queue` | host หรือ controller | |
 | GET | `/rooms/:roomId/search` | host หรือ controller | strict karaoke filter |
@@ -87,13 +88,20 @@ Base path `/api/v1` envelope เหมือนเดิม (`{data}` / `{error:
 | POST | `/rooms/:roomId/queue/skip` | host หรือ controller | |
 | POST | `/rooms/:roomId/queue/play-now` | host หรือ controller | ต้องส่ง `revision` |
 | POST | `/rooms/:roomId/queue/advance` | **host เท่านั้น** | จอหลักเรียกเมื่อเพลงจบ |
+| POST | `/rooms/:roomId/queue/complete` | host หรือ controller | จบเพลงปัจจุบันและบันทึกลงประวัติ |
 | POST | `/rooms/:roomId/queue/current/failure` | host | |
+| GET | `/rooms/:roomId/history` | host หรือ controller | อ่านประวัติเพลงล่าสุด |
 | GET/PUT | `/rooms/:roomId/lyrics/:videoId` | host | |
 | GET | `/rooms/:roomId/lyrics-search` | host | LRCLIB |
 
 Mutation ที่ขึ้นกับตำแหน่งต้องส่ง `revision` ล่าสุด; stale → `409 revision_conflict`
 พร้อม `details.expectedRevision` การตรวจ revision กับ mutation อยู่ใน serialized
 operation เดียวกันต่อห้อง
+
+Controller เป็นผู้ใช้งานรีโมท จึงใช้สิทธิ์ร่วมกับ host เฉพาะการควบคุมห้องที่จำเป็นต่อการร้องเพลง:
+เพิ่ม/ลบ/เรียง/ข้าม/เล่นทันทีในคิว, เล่น/พักและปรับเสียง, เปิด/ปิด fair queue,
+อ่านประวัติ และกดจบเพลงปัจจุบัน. การสร้าง/ปิด/rotate ห้อง, settings อื่น,
+lyrics, การรายงาน player failure และการ advance อัตโนมัติยังเป็นสิทธิ์ของ host เท่านั้น
 
 ## Socket.IO (hosted)
 

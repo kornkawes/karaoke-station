@@ -5,10 +5,17 @@
 .preview-video-mount{display:block}
 .preview-audio-unlock{position:absolute;left:50%;bottom:9%;transform:translateX(-50%);border:1px solid var(--lime);border-radius:999px;background:#080909d9;color:var(--paper);padding:12px 18px;font-weight:800;box-shadow:0 12px 35px #0009}
 .preview-functional-host .join-corner{z-index:4;max-width:min(380px,calc(100vw - 32px));padding:9px 11px}
-.preview-functional-host .real-qr{width:84px;height:84px;display:grid;place-items:center;flex:0 0 84px;background:#f5f1e8;border-radius:4px;overflow:hidden}
-.preview-functional-host .real-qr svg{display:block;width:84px;height:84px}
+.preview-functional-host .real-qr{width:160px;height:160px;display:grid;place-items:center;flex:0 0 160px;background:#f5f1e8;border-radius:6px;overflow:hidden;box-shadow:0 8px 24px #0008}
+/* qrcode.react renders dark modules as SVG paths. The preview icon rules set a
+   global currentColor stroke on every SVG, which paints over those modules and
+   makes the QR look like a blank cream square. Keep the icon system scoped away
+   from the machine-readable code. */
+.preview-functional-host .real-qr svg{display:block;width:160px;height:160px;fill:initial;stroke:none!important}
+.preview-functional-host .real-qr path{stroke:none!important}
 .preview-functional-host .join-copy{min-width:0}
 .preview-functional-host .join-copy p{white-space:nowrap}
+.preview-functional-host .join-link{display:inline-flex;align-items:center;gap:5px;margin-top:8px;color:var(--lime);font-size:10px;font-weight:800;letter-spacing:.02em;text-decoration:none}
+.preview-functional-host .join-link:hover{text-decoration:underline}
 .preview-functional-host .host-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
 .preview-functional-host .host-actions button,.preview-host-button{display:inline-flex;align-items:center;gap:5px;border:1px solid rgba(245,241,232,.25);border-radius:7px;background:rgba(5,6,7,.7);color:var(--paper);padding:6px 8px;font-size:10px;font-weight:800}
 .preview-functional-host .host-actions button:hover,.preview-host-button:hover{border-color:var(--lime);color:var(--lime)}
@@ -75,6 +82,8 @@
 
 @media(max-width:780px){
   .preview-functional-host .join-corner{top:12px;left:12px;transform:scale(.92);transform-origin:top left}
+  .preview-functional-host .real-qr{width:132px;height:132px;flex-basis:132px}
+  .preview-functional-host .real-qr svg{width:132px;height:132px}
   .preview-functional-host .next-song{left:16px;bottom:16px}
   .preview-functional-host .host-actions button{font-size:9px}
   .preview-functional-app .phone{height:100vh;height:100dvh}

@@ -31,8 +31,8 @@ import {
   consumeJoinFragment,
   hostedApi,
   isSessionRevokedError,
-  joinUrlFor,
   partyJoinUrlFor,
+  sessionJoinUrlFor,
   normalizeTrack,
   readSession,
   writeSession
@@ -328,7 +328,11 @@ function PreviewDisplayView() {
 
   const copyJoinLink = useCallback(async () => {
     if (!session) return;
-    const joinUrl = joinUrlFor(session.joinPath);
+    const joinUrl = sessionJoinUrlFor(session);
+    if (!joinUrl) {
+      setNotice("ลิงก์เข้าห้องหมดอายุแล้ว กรุณาสร้างห้องใหม่");
+      return;
+    }
     try {
       await navigator.clipboard.writeText(joinUrl);
       setNotice("คัดลอกลิงก์เข้าห้องแล้ว");
@@ -355,7 +359,10 @@ function PreviewDisplayView() {
   }
 
   const next = room.queue[0];
-  const joinUrl = joinUrlFor(session.joinPath);
+  // Older host sessions may have been written before `joinPath` was added.
+  // Rebuild the invite from the room-scoped token so the QR always encodes a
+  // real, scannable controller URL after a refresh as well.
+  const joinUrl = sessionJoinUrlFor(session);
   return (
     <main className="host-display-page preview-functional-host">
       <section
@@ -366,11 +373,12 @@ function PreviewDisplayView() {
         <PreviewYouTubeStage track={room.current} onEnded={advance} onError={reportFailure} playback={room.playback} />
 
         <aside className="join-corner" aria-label="ข้อมูลห้องจริง">
-          <div className="real-qr"><QRCodeSVG value={joinUrl} size={84} bgColor="#f5f1e8" fgColor="#050607" /></div>
+          <div className="real-qr"><QRCodeSVG value={joinUrl} size={160} bgColor="#f5f1e8" fgColor="#050607" /></div>
           <div className="join-copy">
             <p>ROOM <strong>{session.roomId}</strong></p>
             <small>SCAN TO JOIN · LIVE ROOM</small>
             <span>{connected ? "เชื่อมต่อกับเซิร์ฟเวอร์แล้ว" : "กำลังเชื่อมต่อเซิร์ฟเวอร์"}</span>
+            {joinUrl && <a className="join-link" href={joinUrl} target="_blank" rel="noreferrer"><Copy size={12} /> เปิดลิงก์เข้าห้อง</a>}
             <div className="host-actions">
               <button type="button" onClick={copyJoinLink}><Copy size={13} /> คัดลอกลิงก์</button>
               <button type="button" onClick={createRoom} disabled={creating}><RotateIcon /> ห้องใหม่</button>

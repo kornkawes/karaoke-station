@@ -9,8 +9,24 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(page.locator(".join-corner")).toBeVisible();
   await expect(page.locator(".next-song")).toContainText("รอเพลงแรก");
 
+  // The shared icon stylesheet must not paint over qrcode.react's dark SVG
+  // modules. A visible SVG element alone would miss the blank-cream QR failure.
+  const qrPaint = await page.locator(".real-qr svg").evaluate((svg) => {
+    const paths = [...svg.querySelectorAll("path")];
+    return {
+      darkModules: paths.some((path) => getComputedStyle(path).fill === "rgb(5, 6, 7)"),
+      strokes: paths.map((path) => getComputedStyle(path).stroke)
+    };
+  });
+  expect(qrPaint.darkModules).toBe(true);
+  expect(qrPaint.strokes.every((stroke) => stroke === "none")).toBe(true);
+
   const host = await page.evaluate(() => JSON.parse(sessionStorage.getItem("karaoke.hostSession")));
   expect(host.roomId).toMatch(/^[A-HJ-NP-Z2-9]{8}$/);
+  await expect(page.locator(".join-link")).toHaveAttribute(
+    "href",
+    new RegExp(`^https?://[^/]+/party#room=${host.roomId}&join=`)
+  );
 
   const phone = await context.newPage();
   await phone.setViewportSize({ width: 390, height: 844 });

@@ -10,6 +10,7 @@ import {
   isSessionRevokedError,
   joinUrlFor,
   partyJoinUrlFor,
+  sessionJoinUrlFor,
   readSession,
   writeSession
 } from "../../src/lib/hosted-api";
@@ -200,5 +201,28 @@ describe("join url", () => {
   it("builds a shareable room invite with the join token in the fragment", () => {
     expect(partyJoinUrlFor("ABCD2345", "secret-token", "https://karaoke.example"))
       .toBe("https://karaoke.example/party#room=ABCD2345&join=secret-token");
+  });
+
+  it("canonicalizes a same-origin stored join path", () => {
+    expect(sessionJoinUrlFor({ joinPath: "/party#room=ABCD2345&join=secret-token" }, "https://karaoke.example"))
+      .toBe("https://karaoke.example/party#room=ABCD2345&join=secret-token");
+  });
+
+  it("rejects external or malformed stored paths and rebuilds the room invite", () => {
+    expect(sessionJoinUrlFor({
+      roomId: "ABCD2345",
+      joinToken: "secret-token",
+      joinPath: "https://evil.example/party#room=EVIL&join=leak"
+    }, "https://karaoke.example")).toBe("https://karaoke.example/party#room=ABCD2345&join=secret-token");
+    expect(sessionJoinUrlFor({
+      roomId: "ABCD2345",
+      joinToken: "secret-token",
+      joinPath: "javascript:alert(1)"
+    }, "https://karaoke.example")).toBe("https://karaoke.example/party#room=ABCD2345&join=secret-token");
+    expect(sessionJoinUrlFor({
+      roomId: "ABCD2345",
+      joinToken: "secret-token",
+      joinPath: "/party?redirect=https://evil.example/party#room=EVIL&join=leak"
+    }, "https://karaoke.example")).toBe("https://karaoke.example/party#room=ABCD2345&join=secret-token");
   });
 });

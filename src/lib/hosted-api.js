@@ -176,6 +176,35 @@ export function partyJoinUrlFor(roomId, joinToken, origin = window.location.orig
   return `${origin}/party#${fragment}`;
 }
 
+/**
+ * Return a safe, absolute invite URL for a stored host session.
+ *
+ * `joinPath` is kept for compatibility with older sessions, but it is treated
+ * as untrusted persisted data. Only the same-origin `/party` route is allowed;
+ * malformed or external values fall back to a fresh fragment invite.
+ */
+export function sessionJoinUrlFor(session, origin = window.location.origin) {
+  if (!session) return "";
+  let baseOrigin;
+  try {
+    baseOrigin = new URL(origin).origin;
+  } catch {
+    return "";
+  }
+
+  if (session.joinPath) {
+    try {
+      const parsed = new URL(session.joinPath, baseOrigin);
+      if (parsed.origin === baseOrigin && parsed.pathname === "/party" && parsed.search === "") {
+        return parsed.toString();
+      }
+    } catch {
+      // Fall through to the token-based URL when an old session is malformed.
+    }
+  }
+  return partyJoinUrlFor(session.roomId, session.joinToken, baseOrigin);
+}
+
 export function isSessionRevokedError(codeOrMessage = "") {
   return /401|403|host_token_invalid|controller_session_expired|controller_auth_required|host_auth_required|room_not_found|room_rotated|room_closed|session:expired/i
     .test(String(codeOrMessage));
