@@ -430,7 +430,7 @@ function PreviewDisplayView() {
 
         {!isPresenting && (
           <aside className="join-corner invite-gate" aria-label="สแกน QR เพื่อเข้าห้อง">
-            <p className="invite-brand" aria-label="KAVAOKE"><span aria-hidden="true" /><strong>KAVAOKE</strong></p>
+            <p className="invite-brand" aria-label="KAVAOKE"><strong>KAVAOKE</strong></p>
             <div className="invite-gate-qr">
               <div className="real-qr"><QRCodeSVG value={joinUrl} size={224} bgColor="#f5f1e8" fgColor="#050607" /></div>
               <button type="button" className="scan-qr-button" onClick={() => setNotice("ใช้กล้องมือถือสแกน QR นี้เพื่อเข้าห้อง") } disabled={!joinUrl}>

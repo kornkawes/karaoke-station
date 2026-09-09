@@ -258,9 +258,8 @@
 
 /* Room identity follow-up ---------------------------------------------- */
 .preview-functional-host .invite-brand{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 11px;color:var(--paper);font-size:11px;font-weight:900;letter-spacing:.25em;line-height:1;text-transform:uppercase}
-.preview-functional-host .invite-brand span{display:block;width:6px;height:6px;border-radius:50%;background:var(--lime);box-shadow:0 0 0 4px rgba(216,251,104,.12),0 0 18px rgba(216,251,104,.28)}
 .preview-functional-host .invite-brand strong{font-size:12px;letter-spacing:.25em}
-.preview-functional-host .invite-brand::after{display:block;width:26px;height:1px;content:"";background:linear-gradient(90deg,rgba(216,251,104,.8),rgba(216,251,104,0))}
+.preview-functional-host .invite-brand::after{display:none}
 .preview-functional-host .room-icon,.preview-functional-app .room-icon{display:inline-block;vertical-align:middle;width:14px;height:14px;flex:0 0 auto;line-height:1}
 .preview-functional-host .invite-room{align-items:center;line-height:1}
 .preview-functional-host .invite-room .room-icon{width:18px;height:18px}

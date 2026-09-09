@@ -13,6 +13,8 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(page.getByRole("button", { name: "สร้างห้องใหม่" })).toBeVisible();
   await expect(page.locator(".invite-gate .host-actions button")).toHaveText("สร้างห้องใหม่");
   await expect(page.locator(".invite-gate .host-actions button svg")).toHaveCount(0);
+  await expect(page.locator(".invite-brand > span")).toHaveCount(0);
+  await expect.poll(() => page.locator(".invite-brand").evaluate((node) => getComputedStyle(node, "::after").display)).toBe("none");
   await expect(page.getByText("พร้อมใช้งาน")).toHaveCount(0);
   await expect(page.locator(".invite-brand strong")).toHaveText("KAVAOKE");
   await expect(page.locator(".invite-room svg")).toHaveCount(1);
