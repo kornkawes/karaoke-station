@@ -9,7 +9,14 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(page.locator('.display-stage[data-display-mode="invite"]')).toBeVisible();
   await expect(page.locator(".invite-gate")).toBeVisible();
   await expect(page.locator(".scan-qr-button")).toContainText("SCAN QR TO JOIN");
-  await expect(page.locator(".next-song")).toContainText("รอเพลงแรก");
+  await expect(page.locator(".next-song")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "สร้างห้องใหม่" })).toBeVisible();
+  await expect(page.locator(".invite-gate .host-actions button")).toHaveText("สร้างห้องใหม่");
+  await expect(page.locator(".invite-gate .host-actions button svg")).toHaveCount(0);
+  await expect(page.getByText("พร้อมใช้งาน")).toHaveCount(0);
+  await expect(page.locator(".invite-room svg")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "คัดลอกลิงก์" })).toHaveCount(0);
+  await expect(page.locator(".join-link")).toHaveCount(0);
 
   // The shared icon stylesheet must not paint over qrcode.react's dark SVG
   // modules. A visible SVG element alone would miss the blank-cream QR failure.
@@ -25,11 +32,6 @@ test("approved preview is the default live display and controller", async ({ pag
 
   const host = await page.evaluate(() => JSON.parse(sessionStorage.getItem("karaoke.hostSession")));
   expect(host.roomId).toMatch(/^[A-HJ-NP-Z2-9]{8}$/);
-  await expect(page.locator(".join-link")).toHaveAttribute(
-    "href",
-    new RegExp(`^https?://[^/]+/party#room=${host.roomId}&join=`)
-  );
-
   const phone = await context.newPage();
   await phone.setViewportSize({ width: 390, height: 844 });
   await phone.goto(host.joinPath);
@@ -38,6 +40,8 @@ test("approved preview is the default live display and controller", async ({ pag
   await phone.getByLabel("ชื่อของคุณ").fill("มือถือ Preview");
   await phone.getByRole("button", { name: "เข้าร่วมห้องจริง" }).click();
   await expect(phone.locator(".phone-header .wordmark")).toContainText("KARAOKE STATION");
+  await expect(phone.locator(".phone-header .room-icon")).toHaveCount(1);
+  await expect(phone.locator(".phone-header .room-icon")).toHaveCSS("width", "12px");
   await expect(phone.locator(".search-box input")).toBeEnabled();
   await expect(phone.locator(".sheet-root .remote-sheet")).toHaveCount(0);
   await expect(phone.locator(".bottom-nav")).toBeVisible();
@@ -70,14 +74,24 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(page.locator(".preview-video-layer")).toHaveAttribute("aria-label", "กำลังเล่น เพลงหน้าตา Preview");
   await expect(page.locator(".system-track-bar")).toContainText("เพลงหน้าตา Preview");
   await expect(page.locator(".system-track-bar")).toContainText("QA");
-  await expect(page.locator(".system-track-bar")).toContainText(`ROOM ${host.roomId}`);
+  await expect(page.locator(".system-track-kicker")).toHaveText("NOW PLAYING");
+  await expect(page.locator(".up-next-chip p")).toHaveText("UP NEXT");
+  await expect(page.locator(".up-next-chip span")).toHaveText("เลือกโดย มือถือ Preview");
+  await expect(page.locator(".system-track-source strong")).toHaveText("QA");
+  await expect(page.locator(".system-track-roomline")).toContainText(`KAVAOKE | ${host.roomId}`);
+  await expect(page.locator(".system-track-roomline .room-icon")).toHaveCount(1);
+  await expect(page.locator(".system-track-roomline .room-icon")).toHaveCSS("width", "10px");
+  await expect(page.locator(".system-track-status")).toHaveAttribute("aria-label", "LIVE เชื่อมต่อปกติ");
+  await expect(page.locator(".system-track-status i")).toBeVisible();
+  await expect(page.locator(".system-track-bar")).toHaveCSS("backdrop-filter", /blur\(30px\)/);
   const hostHud = await page.evaluate(() => {
     const next = document.querySelector(".up-next-chip").getBoundingClientRect();
     const meta = document.querySelector(".system-track-bar").getBoundingClientRect();
-    return { next, meta, viewportHeight: window.innerHeight };
+    return { next, meta };
   });
-  expect(hostHud.next.top).toBeGreaterThanOrEqual(hostHud.meta.bottom - 1);
-  expect(hostHud.next.bottom).toBeLessThan(hostHud.viewportHeight * 0.55);
+  expect(hostHud.next.top).toBeGreaterThanOrEqual(hostHud.meta.top - 1);
+  expect(hostHud.next.bottom).toBeLessThanOrEqual(hostHud.meta.bottom + 1);
+  expect(hostHud.next.left).toBeGreaterThan(hostHud.meta.left + 20);
   await expect(phone.locator(".now-dock .dock-play")).toHaveAttribute("aria-label", "พักเพลง");
   await phone.getByRole("button", { name: "เปิดรีโมท" }).click();
   await expect(phone.locator(".remote-primary")).toBeVisible();

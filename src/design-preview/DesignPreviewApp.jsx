@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   Copy,
+  DoorOpen,
   History,
   ListMusic,
   LoaderCircle,
@@ -105,6 +106,10 @@ function Cover({ track, className = "" }) {
       aria-hidden="true"
     />
   );
+}
+
+function RoomIcon({ size = 14, className = "" }) {
+  return <DoorOpen className={`room-icon ${className}`.trim()} size={size} aria-hidden="true" />;
 }
 
 function Toast({ message, onClose }) {
@@ -275,7 +280,9 @@ function PreviewDisplayView() {
       setRoom(emptyPreviewRoom);
       setPresenting(false);
       setConnected(false);
-      setNotice("เปิดห้องใหม่แล้ว");
+      // The first room is created automatically on a fresh Host screen. Keep
+      // that invite state quiet; only a deliberate room rotation needs feedback.
+      setNotice(previous?.roomId ? "เปิดห้องใหม่แล้ว" : "");
     } catch (requestError) {
       setError(requestError.message || "สร้างห้องไม่สำเร็จ");
     } finally {
@@ -388,21 +395,6 @@ function PreviewDisplayView() {
     }
   }, []);
 
-  const copyJoinLink = useCallback(async () => {
-    if (!session) return;
-    const joinUrl = sessionJoinUrlFor(session);
-    if (!joinUrl) {
-      setNotice("ลิงก์เข้าห้องหมดอายุแล้ว กรุณาสร้างห้องใหม่");
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(joinUrl);
-      setNotice("คัดลอกลิงก์เข้าห้องแล้ว");
-    } catch {
-      setNotice("คัดลอกไม่ได้ แต่ QR ด้านซ้ายใช้เข้าห้องได้จริง");
-    }
-  }, [session]);
-
   if (error) {
     return (
       <main className="host-display-page hosted-display-centered preview-functional-host">
@@ -445,14 +437,9 @@ function PreviewDisplayView() {
               </button>
             </div>
             <div className="invite-gate-copy">
-              <p className="eyebrow">KARAOKE STATION · LIVE ROOM</p>
-              <h1>สแกนเพื่อเริ่มร้อง</h1>
-              <p className="invite-instruction">เปิดกล้องมือถือแล้วสแกน QR เพื่อเลือกเพลงและเข้าควบคุมห้อง</p>
-              <div className="invite-room"><span>ROOM</span><strong>{session.roomId}</strong><small><i className={connected ? "is-online" : ""} /> {connected ? "พร้อมให้เข้าห้อง" : "กำลังเชื่อมต่อ"}</small></div>
-              {joinUrl && <a className="join-link" href={joinUrl} target="_blank" rel="noreferrer"><Copy size={12} /> เปิดลิงก์เข้าห้องในหน้าต่างใหม่</a>}
+              <div className="invite-room" aria-label={`รหัสห้อง ${session.roomId}`}><RoomIcon size={16} /><strong>{session.roomId}</strong></div>
               <div className="host-actions">
-                <button type="button" onClick={copyJoinLink}><Copy size={13} /> คัดลอกลิงก์</button>
-                <button type="button" onClick={createRoom} disabled={creating}><RotateIcon /> ห้องใหม่</button>
+                <button type="button" onClick={createRoom} disabled={creating}>สร้างห้องใหม่</button>
               </div>
             </div>
           </aside>
@@ -461,34 +448,39 @@ function PreviewDisplayView() {
         {isPresenting && (
           <aside className="system-track-bar" aria-label="รายละเอียดเพลงจาก Karaoke Station">
             <div className="system-track-copy">
-              <span className="system-track-kicker"><i /> {room.current ? "NOW PLAYING · LIVE" : "KARAOKE STATION · READY"}</span>
-              <strong title={room.current?.title || "รอเพลงแรก"}>{room.current?.title || "รอเพลงแรก · เลือกเพลงจากมือถือ"}</strong>
-              <small>{room.current ? `${room.current.channelTitle || "YouTube"} · ${room.stationName || "KaraokeStation"}` : "เพิ่มเพลงจากมือถือเพื่อเริ่มร้อง"} · ROOM {session.roomId}</small>
+              <span className="system-track-kicker"><i /> {room.current ? "NOW PLAYING" : "KARAOKE STATION · READY"}</span>
+              <strong title={room.current?.title || "ยังไม่มีเพลงที่เลือกไว้"}>{room.current?.title || "ยังไม่มีเพลงที่เลือกไว้"}</strong>
+              <small className="system-track-roomline">KAVAOKE | <RoomIcon size={11} /> {session.roomId}</small>
             </div>
-            <span className={`system-track-status ${connected ? "is-online" : ""}`}>{connected ? "LIVE" : "กำลังเชื่อมต่อ"}</span>
+            <div className={`system-track-source ${room.current ? "has-source" : "is-empty"}`} aria-label={room.current ? `ช่อง YouTube ${room.current.channelTitle || "YouTube"}` : undefined}>
+              {room.current && <strong title={room.current.channelTitle || "YouTube"}>{room.current.channelTitle || "YouTube"}</strong>}
+            </div>
+            <div className="system-up-next">
+              <div className="next-song up-next-chip" aria-label="เพลงถัดไป">
+                <p>UP NEXT</p>
+                <strong>{next?.title || (room.current ? "ยังไม่มีเพลงถัดไป" : "รอเพลงแรก")}</strong>
+                <span>{next ? `เลือกโดย ${next.requestedBy || "สมาชิกในห้อง"}` : "เพิ่มเพลงจากมือถือ"}</span>
+              </div>
+            </div>
+            <span
+              className={`system-track-status ${connected ? "is-online" : "is-offline"}`}
+              aria-label={connected ? "LIVE เชื่อมต่อปกติ" : "LIVE หลุดการเชื่อมต่อ"}
+            >
+              <i aria-hidden="true" />
+              <span>LIVE</span>
+            </span>
           </aside>
         )}
-
-        <aside className="next-song up-next-chip" aria-label="เพลงถัดไป">
-          <p>UP NEXT · {room.queue.length} เพลง</p>
-          <strong>{next?.title || (room.current ? "ยังไม่มีเพลงถัดไป" : "รอเพลงแรก")}</strong>
-          <span>{next ? `${next.channelTitle || "YouTube"} · ${next.requestedBy || "สมาชิกในห้อง"}` : "เพิ่มเพลงจากมือถือ"}</span>
-        </aside>
 
         <div className="display-controls" data-controls>
           <button type="button" className="fullscreen-control" onClick={toggleFullscreen} aria-label="เข้าสู่โหมดเต็มหน้าจอ">
             <Maximize2 size={17} />
-            <span className="control-label">FULL SCREEN</span>
           </button>
         </div>
       </section>
       <Toast message={notice} onClose={() => setNotice("")} />
     </main>
   );
-}
-
-function RotateIcon() {
-  return <span aria-hidden="true" className="rotate-icon">↻</span>;
 }
 
 function PreviewJoinView({ roomId, joinToken, onJoin }) {
@@ -526,14 +518,14 @@ function PreviewJoinView({ roomId, joinToken, onJoin }) {
       <div className="desktop-context"><a href="/">← กลับหน้าจอแสดงผล</a><p>LIVE MOBILE REMOTE<br />SCAN QR FROM HOST</p></div>
       <section className="phone join-phone" aria-label="เข้าห้อง Karaoke Station" inert>
         <header className="phone-header">
-          <div><a className="wordmark" href="/">KARAOKE STATION <i>AFTER HOURS</i></a><p><span className="status-dot" /> {roomId || "—"} · LIVE ROOM</p></div>
+          <div><a className="wordmark" href="/">KARAOKE STATION <i>AFTER HOURS</i></a><p><span className="status-dot" /><RoomIcon size={12} /> {roomId || "—"} · LIVE</p></div>
           <div className="header-actions">
             <button type="button" className="share-button svg-button" onClick={shareInvite} disabled={!inviteUrl} aria-label="เปิดคำเชิญห้อง"><Share2 size={16} /><span>แชร์</span></button>
             <button type="button" className="settings-button svg-button" disabled aria-label="ตั้งค่าห้อง"><Settings size={18} /></button>
           </div>
         </header>
         <section className="phone-content" aria-live="polite">
-          <section className="mobile-hero"><p className="eyebrow">KARAOKE STATION <span className="preview-label">· LIVE ROOM</span></p><h1>คืนนี้<br /><em>ร้องเพลงไหนดี?</em></h1></section>
+          <section className="mobile-hero"><p className="eyebrow">KARAOKE STATION <span className="preview-label room-label"><RoomIcon size={12} /> LIVE</span></p><h1>คืนนี้<br /><em>ร้องเพลงไหนดี?</em></h1></section>
           <form className="search-box" onSubmit={(event) => event.preventDefault()}>
             <input aria-label="ค้นหาชื่อเพลง ศิลปิน หรือลิงก์ YouTube" disabled placeholder="ชื่อเพลง, ศิลปิน หรือ YouTube URL" />
             <button type="submit" aria-label="ค้นหา" disabled><Search size={20} /></button>
@@ -559,8 +551,8 @@ function PreviewJoinView({ roomId, joinToken, onJoin }) {
       <div className="sheet-root">
         <div className="sheet-backdrop" aria-hidden="true" />
         <section className="remote-sheet compact-sheet" role="dialog" aria-modal="true" aria-labelledby="joinTitle">
-          <p className="eyebrow">JOIN ROOM · LIVE</p>
-          <h2 id="joinTitle">เข้าห้อง {roomId || "—"}</h2>
+          <p className="eyebrow"><RoomIcon size={12} /> JOIN · LIVE</p>
+          <h2 id="joinTitle"><RoomIcon size={20} /> เข้าร่วม {roomId || "—"}</h2>
           <p className="sheet-subtitle">ใส่ชื่อที่จะใช้ขอเพลง</p>
           {roomId && joinToken ? (
             <form id="joinForm" onSubmit={submit}>
@@ -861,12 +853,12 @@ function PreviewController({ session, onRevoked }) {
 
   return (
     <main className="mobile-preview preview-functional-app">
-      <div className="desktop-context"><a href="/">← กลับหน้าจอ Host</a><p>LIVE MOBILE REMOTE<br />REAL ROOM · SOCKET SYNC</p></div>
+      <div className="desktop-context"><a href="/">← กลับหน้าจอ Host</a><p>LIVE MOBILE REMOTE<br />REAL <RoomIcon size={12} /> · SOCKET SYNC</p></div>
       <section className="phone" aria-label="Karaoke Station mobile remote" inert={Boolean(sheet)}>
         <header className="phone-header">
           <div>
             <a className="wordmark" href="/">KARAOKE STATION <i>AFTER HOURS</i></a>
-            <p><span className={`status-dot ${connected ? "is-online" : ""}`} /> {session.roomId} · {connected ? "เชื่อมต่อแล้ว" : "กำลังเชื่อมต่อ"}</p>
+            <p><span className={`status-dot ${connected ? "is-online" : ""}`} /><RoomIcon size={12} /> {session.roomId} · {connected ? "เชื่อมต่อแล้ว" : "กำลังเชื่อมต่อ"}</p>
           </div>
           <div className="header-actions">
             <button type="button" className="share-button svg-button" onClick={() => setSheet("share")} aria-label="เปิดคำเชิญห้อง"><Share2 size={16} /><span>แชร์</span></button>
@@ -877,7 +869,7 @@ function PreviewController({ session, onRevoked }) {
         <section className="phone-content" aria-live="polite">
           {tab === "search" && (
             <>
-              <section className="mobile-hero"><p className="eyebrow">KARAOKE STATION <span className="preview-label">· LIVE ROOM</span></p><h1>คืนนี้<br /><em>ร้องเพลงไหนดี?</em></h1></section>
+              <section className="mobile-hero"><p className="eyebrow">KARAOKE STATION <span className="preview-label room-label"><RoomIcon size={12} /> LIVE</span></p><h1>คืนนี้<br /><em>ร้องเพลงไหนดี?</em></h1></section>
               <form className="search-box" onSubmit={doSearch}>
                 <input aria-label="ค้นหาชื่อเพลง ศิลปิน หรือลิงก์ YouTube" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ชื่อเพลง, ศิลปิน หรือ YouTube URL" autoComplete="off" />
                 <button type="submit" aria-label="ค้นหา"><Search size={20} /></button>
@@ -895,13 +887,13 @@ function PreviewController({ session, onRevoked }) {
               <ul className="song-list">
                 {displayedResults.map((track) => <SongRow key={track.videoId} track={track} favorite={favorites.some((item) => item.videoId === track.videoId)} onFavorite={toggleFavorite} onAdd={add} />)}
               </ul>
-              <p className="live-callout"><strong>LIVE ROOM</strong> · เพิ่มเพลงแล้วทุกอุปกรณ์ในห้องจะเห็นคิวเดียวกันทันที</p>
+              <p className="live-callout"><strong><RoomIcon size={12} /> LIVE</strong> · เพิ่มเพลงแล้วทุกอุปกรณ์ในห้องจะเห็นคิวเดียวกันทันที</p>
             </>
           )}
 
           {tab === "queue" && (
             <>
-              <section className="queue-title"><div><p className="eyebrow">LIVE ROOM</p><h1>คิวของเรา</h1></div><p>{room.queue.length} เพลง</p></section>
+              <section className="queue-title"><div><p className="eyebrow"><RoomIcon size={12} /> LIVE</p><h1>คิวของเรา</h1></div><p>{room.queue.length} เพลง</p></section>
               <section className="fair-toggle"><div><strong>ผลัดกันร้อง</strong><small>{room.settings?.fairQueue ? "เปิดอยู่ · ระบบกระจายคิวตามผู้ขอ" : "ปิดอยู่ · จัดลำดับเองได้"}</small></div><button type="button" className={`switch ${room.settings?.fairQueue ? "on" : ""}`} onClick={toggleFairQueue} disabled={fairSaving} aria-pressed={Boolean(room.settings?.fairQueue)}><i /></button></section>
               <div className="queue-toolbar"><span>{reorderMode ? "กดลูกศรเพื่อย้ายเพลง" : "คิวนี้เป็นของห้องจริง"}</span><button type="button" onClick={() => setReorderMode((value) => !value)} disabled={room.queue.length < 2}>{reorderMode ? "เสร็จสิ้น" : "สลับคิว"}</button></div>
               <section className="queue-list">
@@ -921,7 +913,7 @@ function PreviewController({ session, onRevoked }) {
 
           {tab === "history" && (
             <>
-              <section className="history-title"><p className="eyebrow">THE GOOD PARTS</p><h1>ประวัติการร้อง</h1><p>ห้องนี้ · {history.length} เพลง</p></section>
+              <section className="history-title"><p className="eyebrow">THE GOOD PARTS</p><h1>ประวัติการร้อง</h1><p><RoomIcon size={12} /> · {history.length} เพลง</p></section>
               <section className="history-list">
                 {history.length === 0 && <div className="empty-state"><b>ยังไม่มีประวัติ</b><span>เพลงที่จบหรือถูกข้ามจะปรากฏที่นี่</span></div>}
                 {history.map((item, index) => {
@@ -964,7 +956,7 @@ function PreviewController({ session, onRevoked }) {
               <>
                 <p className="eyebrow">MOBILE REMOTE · LIVE</p>
                 <h2 id="remoteSheetTitle">{current?.title || "รอเพลงแรก"}</h2>
-                <p className="sheet-subtitle">{current ? `${current.channelTitle || "YouTube"} · ห้อง ${session.roomId}` : "ยังไม่มีเพลงกำลังเล่น"}</p>
+                <p className="sheet-subtitle">{current ? <><span>{current.channelTitle || "YouTube"}</span> · <RoomIcon size={12} /> {session.roomId}</> : "ยังไม่มีเพลงกำลังเล่น"}</p>
                 <div className="remote-primary">
                   <button
                     type="button"
@@ -990,8 +982,8 @@ function PreviewController({ session, onRevoked }) {
                 <p className="sheet-note">คำสั่งเล่น เสียง และคิวส่งเข้าจอ Host ของห้องนี้จริง</p>
               </>
             )}
-            {sheet === "share" && <><p className="eyebrow">INVITATION · LIVE</p><h2 id="remoteSheetTitle">ชวนเพื่อนเข้าห้อง</h2><p className="sheet-subtitle">ห้อง {session.roomId} · ลิงก์นี้มี join token ใน fragment ที่ไม่ถูกส่งไปกับ request</p><label className="copy-field">ลิงก์เข้าร่วม<input readOnly value={partyJoinUrlFor(session.roomId, session.joinToken)} /></label><button type="button" className="sheet-action" onClick={shareRoom}><Copy size={16} /> คัดลอก / แชร์ลิงก์จริง</button></>}
-            {sheet === "settings" && <><p className="eyebrow">ROOM SESSION · LIVE</p><h2 id="remoteSheetTitle">ข้อมูลห้อง</h2><p className="sheet-subtitle">คุณเข้าร่วมในชื่อ <strong>{session.displayName}</strong></p><div className="session-info"><span>ROOM</span><strong>{session.roomId}</strong><span>สถานะ</span><strong>{connected ? "เชื่อมต่อแล้ว" : "กำลังเชื่อมต่อ"}</strong></div><button type="button" className="sheet-danger" onClick={() => { clearSession(CONTROLLER_STORAGE_KEY); onRevoked(); }}>ออกจากห้องนี้</button></>}
+            {sheet === "share" && <><p className="eyebrow">INVITATION · LIVE</p><h2 id="remoteSheetTitle">ชวนเพื่อนเข้าห้อง</h2><p className="sheet-subtitle"><RoomIcon size={12} /> {session.roomId} · ลิงก์นี้มี join token ใน fragment ที่ไม่ถูกส่งไปกับ request</p><label className="copy-field">ลิงก์เข้าร่วม<input readOnly value={partyJoinUrlFor(session.roomId, session.joinToken)} /></label><button type="button" className="sheet-action" onClick={shareRoom}><Copy size={16} /> คัดลอก / แชร์ลิงก์จริง</button></>}
+            {sheet === "settings" && <><p className="eyebrow"><RoomIcon size={12} /> SESSION · LIVE</p><h2 id="remoteSheetTitle">ข้อมูลห้อง</h2><p className="sheet-subtitle">คุณเข้าร่วมในชื่อ <strong>{session.displayName}</strong></p><div className="session-info"><span><RoomIcon size={12} /></span><strong>{session.roomId}</strong><span>สถานะ</span><strong>{connected ? "เชื่อมต่อแล้ว" : "กำลังเชื่อมต่อ"}</strong></div><button type="button" className="sheet-danger" onClick={() => { clearSession(CONTROLLER_STORAGE_KEY); onRevoked(); }}>ออกจากห้องนี้</button></>}
           </section>
         </div>
       )}

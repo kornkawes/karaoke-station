@@ -181,3 +181,77 @@
   .preview-functional-host .invite-gate .real-qr,.preview-functional-host .invite-gate .real-qr svg{width:148px;height:148px}
   .preview-functional-host .invite-gate .real-qr{flex-basis:148px}
 }
+
+/* Minimal host pass ------------------------------------------------------ */
+.preview-functional-host .display-stage.is-presenting::after{background:linear-gradient(180deg,rgba(0,0,0,.2),transparent 29%,transparent 78%,rgba(0,0,0,.16))}
+.preview-functional-host .invite-gate{width:min(360px,calc(100vw - 32px));padding:22px 22px 20px;border-color:rgba(216,251,104,.5);background:linear-gradient(140deg,rgba(20,27,25,.42),rgba(3,7,8,.45));box-shadow:0 22px 64px rgba(0,0,0,.42),0 0 0 1px rgba(255,255,255,.1) inset;backdrop-filter:blur(22px) saturate(145%);-webkit-backdrop-filter:blur(22px) saturate(145%)}
+.preview-functional-host .invite-gate-copy{margin-top:14px}
+.preview-functional-host .invite-room{margin-top:0}
+.preview-functional-host .invite-room{align-items:center;gap:8px;letter-spacing:.12em}
+.preview-functional-host .invite-room svg{color:var(--lime);stroke-width:1.8}
+.preview-functional-host .invite-gate .host-actions{width:100%;margin-top:14px}
+.preview-functional-host .invite-gate .host-actions button{width:100%;min-height:40px;justify-content:center;border-color:rgba(245,241,232,.32);background:rgba(245,241,232,.08);font-size:10px}
+.preview-functional-host .invite-gate .host-actions button:hover{background:rgba(216,251,104,.12)}
+.preview-functional-host .system-track-bar{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(130px,.38fr) minmax(250px,.78fr) auto;align-items:center;gap:18px;min-height:86px;padding:12px clamp(20px,2.4vw,36px) 14px;background:linear-gradient(180deg,rgba(10,15,16,.5),rgba(10,15,16,.25) 68%,rgba(10,15,16,.1)),radial-gradient(circle at 76% -70%,rgba(216,251,104,.12),transparent 38%);border-top:1px solid rgba(255,255,255,.08);border-bottom:1px solid rgba(245,241,232,.2);box-shadow:0 18px 50px rgba(0,0,0,.24),inset 0 1px 0 rgba(255,255,255,.1);backdrop-filter:blur(30px) saturate(150%);-webkit-backdrop-filter:blur(30px) saturate(150%)}
+.preview-functional-host .system-track-copy{max-width:none}
+.preview-functional-host .system-track-copy strong{text-shadow:0 2px 18px rgba(0,0,0,.7)}
+.preview-functional-host .system-track-roomline{display:flex;align-items:center;gap:5px}
+.preview-functional-host .room-icon{width:12px;height:12px;flex:0 0 auto;color:var(--lime);stroke-width:1.8}
+.preview-functional-host .invite-room .room-icon{width:14px;height:14px}
+.preview-functional-host .system-track-roomline .room-icon{width:10px;height:10px}
+.preview-functional-host .system-track-source{min-width:0;min-height:34px;display:flex;align-items:center;padding:0 14px;border-left:1px solid rgba(245,241,232,.2)}
+.preview-functional-host .system-track-source strong{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--paper);font-size:10px;font-weight:800;letter-spacing:.02em;text-shadow:0 1px 12px rgba(0,0,0,.6)}
+.preview-functional-host .system-track-source.is-empty{visibility:hidden}
+.preview-functional-host .system-up-next{min-width:0;padding-left:18px;border-left:1px solid rgba(245,241,232,.25)}
+.preview-functional-host .next-song.up-next-chip{position:static;top:auto;right:auto;bottom:auto;left:auto;width:auto;max-width:none;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;backdrop-filter:none;text-shadow:0 2px 14px rgba(0,0,0,.65)}
+.preview-functional-host .up-next-chip p{margin:0 0 4px;font-size:9px}
+.preview-functional-host .up-next-chip strong{font-size:clamp(13px,1.15vw,17px)}
+.preview-functional-host .up-next-chip span{margin-top:3px;font-size:10px}
+.preview-functional-host .system-track-status{display:inline-flex;align-items:center;gap:8px;margin:0 52px 0 0;color:var(--paper);font-size:10px;font-weight:900;letter-spacing:.14em}
+.preview-functional-host .system-track-status.is-online{color:var(--paper)}
+.preview-functional-host .system-track-status i{display:block;width:8px;height:8px;border-radius:50%;background:#ff625d;box-shadow:0 0 0 4px rgba(255,98,93,.14);animation:live-status-blink 1.35s ease-in-out infinite}
+.preview-functional-host .system-track-status.is-online i{background:var(--lime);box-shadow:0 0 0 4px rgba(216,251,104,.14)}
+.preview-functional-host .fullscreen-control{width:42px;min-width:42px;height:42px;min-height:42px;padding:0;border-radius:50%;background:rgba(5,6,7,.24);backdrop-filter:blur(6px)}
+
+@keyframes live-status-blink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.42;transform:scale(.82)}}
+
+@media(max-width:900px){
+  .preview-functional-host .system-track-bar{grid-template-columns:minmax(0,1fr) minmax(100px,.34fr) minmax(180px,.7fr) auto;gap:13px}
+  .preview-functional-host .system-up-next{padding-left:13px}
+}
+
+@media(max-width:700px){
+  .preview-functional-host .system-track-bar{grid-template-columns:minmax(0,1fr) minmax(86px,.32fr) auto;min-height:96px}
+  .preview-functional-host .system-track-copy{grid-column:1;grid-row:1}
+  .preview-functional-host .system-track-source{grid-column:2;grid-row:1;padding:0 8px;border-left:1px solid rgba(245,241,232,.2)}
+  .preview-functional-host .system-track-status{display:inline-flex;grid-column:3;grid-row:1;margin:0 40px 0 0;font-size:9px}
+  .preview-functional-host .system-up-next{grid-column:1 / -1;grid-row:2;padding:6px 0 0;border-top:1px solid rgba(245,241,232,.2);border-left:0}
+}
+
+@media(max-width:520px){
+  .preview-functional-host .invite-gate{width:calc(100vw - 32px);padding:18px 16px 16px}
+  .preview-functional-host .invite-gate .real-qr,.preview-functional-host .invite-gate .real-qr svg{width:164px;height:164px}
+  .preview-functional-host .invite-gate .real-qr{flex-basis:164px}
+  .preview-functional-host .scan-qr-button{min-width:164px}
+  .preview-functional-host .system-track-bar{min-height:86px;padding:10px 16px 12px}
+  .preview-functional-host .system-track-source{padding:0 5px}
+  .preview-functional-host .system-track-source strong{font-size:8px}
+  .preview-functional-host .system-track-status{margin-right:48px;font-size:8px;gap:5px}
+  .preview-functional-host .system-track-status i{width:7px;height:7px}
+  .preview-functional-host .system-track-copy strong{font-size:15px}
+  .preview-functional-host .system-track-copy small{font-size:9px}
+  .preview-functional-host .system-up-next{padding-top:5px}
+}
+
+/* Shared room identity --------------------------------------------------- */
+.preview-functional-app .room-icon{width:12px;height:12px;flex:0 0 auto;color:var(--lime);stroke-width:1.8}
+.preview-functional-app #joinTitle .room-icon{width:16px;height:16px}
+.preview-functional-app .phone-header p,
+.preview-functional-app .room-label,
+.preview-functional-app .live-callout strong,
+.preview-functional-app .queue-title .eyebrow,
+.preview-functional-app .history-title > p:last-child,
+.preview-functional-app .session-info > span:first-child{display:inline-flex;align-items:center;gap:5px}
+.preview-functional-app .sheet-subtitle{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.preview-functional-app #joinTitle{display:flex;align-items:center;gap:8px}
+.preview-functional-app .session-info > span:first-child{display:flex}
