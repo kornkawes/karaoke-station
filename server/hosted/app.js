@@ -434,7 +434,7 @@ export async function createHostedApplication({
       const result = await youtube.search({
         query: request.query.q,
         mode: request.query.mode ?? "both",
-        maxResults: request.query.limit ?? 12
+        maxResults: request.query.limit ?? 15
       });
       data(response, result);
     })

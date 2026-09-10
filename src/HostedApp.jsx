@@ -189,7 +189,16 @@ function HostedPlayer({ track, onEnded, onError, onExitFullscreen, isFullscreen,
       rootRef.current.appendChild(mount);
       playerRef.current = new window.YT.Player(mount, {
         videoId: track.videoId,
-        playerVars: { autoplay: playbackRef.current.playing ? 1 : 0, playsinline: 1, rel: 0, origin: window.location.origin },
+        playerVars: {
+          autoplay: playbackRef.current.playing ? 1 : 0,
+          controls: 0,
+          disablekb: 1,
+          fs: 0,
+          playsinline: 1,
+          rel: 0,
+          iv_load_policy: 3,
+          origin: window.location.origin
+        },
         events: {
           onReady: ({ target }) => {
             const next = playbackRef.current;

@@ -448,24 +448,6 @@
 
 /* Mobile v17: show the useful state immediately and keep every icon centered. */
 .preview-functional-app .mobile-tip{margin:10px 0 12px}
-.preview-functional-app .search-example{margin:18px 0 4px}
-.preview-functional-app .search-example-heading,
-.preview-functional-app .history-example-heading{
-  display:flex;
-  align-items:baseline;
-  justify-content:space-between;
-  gap:10px;
-  margin:0 0 7px;
-  color:var(--muted);
-  font-size:10px;
-}
-.preview-functional-app .search-example-heading strong,
-.preview-functional-app .history-example-heading strong{color:var(--paper);font-size:11px}
-.preview-functional-app .search-example-row{border:1px solid rgba(245,241,232,.12);border-radius:12px;padding:10px 11px;background:rgba(245,241,232,.025)}
-.preview-functional-app .search-example-row .song-actions button{opacity:.82;cursor:default}
-.preview-functional-app .sample-cover-sky{background:linear-gradient(145deg,#79c4d0 0 28%,#d1edcf 48%,#355564 100%)!important}
-.preview-functional-app .sample-cover-sunset{background:radial-gradient(circle at 70% 20%,#ffe590 0 13%,transparent 14%),linear-gradient(150deg,#c75b43,#f39c63 52%,#553d48)!important}
-.preview-functional-app .sample-cover-night{background:radial-gradient(circle at 68% 27%,#d8fb68 0 5%,transparent 6%),linear-gradient(145deg,#263953,#111923 62%,#080b10)!important}
 
 .preview-functional-app .search-box button,
 .preview-functional-app .song-actions button,
@@ -519,9 +501,6 @@
 .preview-functional-app .history-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px;min-width:0}
 .preview-functional-app .history-heading h1{min-width:0;margin:0;font-size:29px;line-height:1.05}
 .preview-functional-app .history-heading .history-count{flex:0 0 auto;margin:0;color:var(--muted);font-size:11px;line-height:1}
-.preview-functional-app .history-example{margin:0}
-.preview-functional-app .history-example .history-example-heading{margin-bottom:5px}
-.preview-functional-app .history-row-example .readd{opacity:.72;cursor:default}
 
 @media(max-width:385px){
   .preview-functional-app .queue-item{grid-template-columns:38px 56px minmax(0,1fr);column-gap:8px;min-height:104px;padding-top:12px;padding-bottom:12px}
@@ -530,4 +509,93 @@
 
 @media(prefers-reduced-motion:reduce){
   .preview-functional-app .queue-title-marquee.is-long .queue-title-track{animation:none;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+}
+
+/* Mobile v19: quiet join sheet, clear room identity, and continuous title loops. */
+.preview-functional-app .phone-header .brand-block{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+}
+.preview-functional-app .phone-header .brand-block .wordmark{display:inline-flex;align-items:baseline}
+.preview-functional-app .phone-header .room-meta{
+  display:flex;
+  align-items:center;
+  gap:5px;
+  min-width:0;
+  margin:8px 0 0;
+  line-height:1;
+  white-space:nowrap;
+}
+.preview-functional-app .phone-header .room-meta > span:not(.status-dot){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.preview-functional-app .phone-header .status-dot.is-online{
+  --live-glow:rgba(216,251,104,.16);
+  animation:live-status-breathe 2.2s ease-in-out infinite;
+  box-shadow:0 0 0 3px rgba(216,251,104,.12);
+}
+.preview-functional-app .join-sheet{padding-top:24px}
+.preview-functional-app .join-room-heading{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-top:0;
+  letter-spacing:.08em;
+}
+.preview-functional-app .join-room-heading .room-icon{width:19px;height:19px;flex:0 0 auto}
+.preview-functional-app .join-sheet .copy-field{margin-top:22px}
+.preview-functional-app .song-info > .type-badge{
+  display:inline-flex;
+  width:max-content;
+  max-width:100%;
+  align-items:center;
+  justify-self:start;
+  margin:0;
+  line-height:1.15;
+}
+.preview-functional-app .song-info > .title-marquee{margin-top:6px}
+.preview-functional-app .title-marquee{
+  display:block;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:clip;
+  white-space:nowrap;
+}
+.preview-functional-app .title-marquee-track{
+  display:inline-flex;
+  gap:42px;
+  min-width:max-content;
+  white-space:nowrap;
+  will-change:transform;
+}
+.preview-functional-app .title-marquee-track > span{flex:0 0 auto}
+.preview-functional-app .title-marquee:not(.is-long) .title-marquee-track{
+  display:block;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.preview-functional-app .title-marquee.is-long .title-marquee-track{
+  animation:mobile-title-marquee 16s linear infinite;
+}
+.preview-functional-app .song-info .title-marquee-track,
+.preview-functional-app .song-info .title-marquee-track > span{
+  margin-top:0;
+  color:inherit;
+  font-size:inherit;
+  line-height:inherit;
+}
+.preview-functional-app .now-dock .title-marquee{margin:2px 0}
+.preview-functional-app .remote-sheet h2 .title-marquee{display:block}
+
+@keyframes mobile-title-marquee{
+  from{transform:translateX(0)}
+  to{transform:translateX(calc(-50% - 21px))}
+}
+
+@media(prefers-reduced-motion:reduce){
+  .preview-functional-app .phone-header .status-dot.is-online,
+  .preview-functional-app .title-marquee.is-long .title-marquee-track{animation:none}
+  .preview-functional-app .title-marquee.is-long .title-marquee-track{max-width:100%;overflow:hidden;text-overflow:ellipsis}
 }

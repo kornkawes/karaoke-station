@@ -52,8 +52,11 @@ test("approved preview is the default live display and controller", async ({ pag
   await phone.goto(host.joinPath);
   await expect(phone.locator(".phone > .phone-header")).toBeVisible();
   await expect(phone.locator(".sheet-root .remote-sheet")).toBeVisible();
+  await expect(phone.locator(".join-sheet .eyebrow")).toHaveCount(0);
+  await expect(phone.locator(".join-sheet .sheet-subtitle")).toHaveCount(0);
+  await expect(phone.locator("#joinTitle")).toHaveText(host.roomId);
   await phone.getByLabel("ชื่อของคุณ").fill("มือถือ Preview");
-  await phone.getByRole("button", { name: "เข้าร่วมห้องจริง" }).click();
+  await phone.getByRole("button", { name: "เข้าร่วมห้อง", exact: true }).click();
   await expect(phone.locator(".phone-header .wordmark")).toContainText("KAVAOKE");
   await expect(phone.locator(".phone-header .wordmark i")).toHaveText("STATION");
   await expect(phone.locator(".phone-header .room-icon")).toHaveCount(1);
@@ -63,7 +66,8 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(phone.locator(".mobile-tip")).toContainText("Tips");
   const searchContentOrder = await phone.locator(".phone-content").evaluate((content) => [...content.querySelectorAll(":scope > *")].map((node) => node.className));
   expect(searchContentOrder.indexOf("mobile-tip")).toBeGreaterThan(searchContentOrder.indexOf("chips"));
-  await expect(phone.locator(".search-example")).toBeVisible();
+  await expect(phone.locator(".search-example")).toHaveCount(0);
+  await expect(phone.locator(".history-example")).toHaveCount(0);
   await expect(phone.locator(".search-box").locator("button svg")).toBeVisible();
   await expect(phone.locator(".sheet-root .remote-sheet")).toHaveCount(0);
   await expect(phone.locator(".bottom-nav")).toBeVisible();
@@ -214,7 +218,7 @@ test("mobile notices stay compact above sheets without horizontal overlap", asyn
   await phone.setViewportSize({ width: 320, height: 568 });
   await phone.goto(host.joinPath);
   await phone.getByLabel("ชื่อของคุณ").fill("มือถือ Toast");
-  await phone.getByRole("button", { name: "เข้าร่วมห้องจริง" }).click();
+  await phone.getByRole("button", { name: "เข้าร่วมห้อง", exact: true }).click();
   await expect(phone.locator(".search-box input")).toBeEnabled();
 
   const controller = await phone.evaluate(() => JSON.parse(sessionStorage.getItem("karaoke.controllerSession")));
@@ -294,11 +298,12 @@ test("mobile shell keeps header, scroll area, dock and nav in separate layers", 
   const phone = await context.newPage();
   await phone.goto(host.joinPath);
   await phone.getByLabel("ชื่อของคุณ").fill("มือถือ Layout");
-  await phone.getByRole("button", { name: "เข้าร่วมห้องจริง" }).click();
+  await phone.getByRole("button", { name: "เข้าร่วมห้อง", exact: true }).click();
   await expect(phone.locator(".search-box input")).toBeEnabled();
   await phone.getByRole("button", { name: "ประวัติ" }).click();
   await expect(phone.locator(".history-title")).toBeVisible();
-  await expect(phone.locator(".history-example")).toBeVisible();
+  await expect(phone.locator(".history-example")).toHaveCount(0);
+  await expect(phone.locator(".history-list .empty-state")).toContainText("ยังไม่มีประวัติการร้อง");
   await expect(phone.locator(".history-title .room-icon")).toHaveCount(0);
   await expect(phone.locator(".phone-header .wordmark")).toContainText("KAVAOKE");
   await phone.locator(".bottom-nav button").first().click();

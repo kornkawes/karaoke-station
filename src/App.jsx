@@ -35,7 +35,18 @@ export function resolveLyricsMode(currentMode, settings, syncDefault = false) { 
 export function playbackIntentForMutation(currentTrack, { playNow = false, advance = false } = {}) { return Boolean(currentTrack && (playNow || advance)); }
 export function playbackStateAfterAdd(previousPlaying, currentTrack, playNow) { return playNow ? playbackIntentForMutation(currentTrack, { playNow }) : previousPlaying; }
 export function playbackStateAfterCurrentUpdate(previousPlaying, currentTrack, { continuePlayback = false } = {}) { return currentTrack ? (continuePlayback || previousPlaying) : false; }
-export function youtubePlayerVars(shouldAutoplay, origin = location.origin) { return { rel: 0, playsinline: 1, autoplay: shouldAutoplay ? 1 : 0, origin }; }
+export function youtubePlayerVars(shouldAutoplay, origin = location.origin) {
+  return {
+    autoplay: shouldAutoplay ? 1 : 0,
+    controls: 0,
+    disablekb: 1,
+    fs: 0,
+    playsinline: 1,
+    rel: 0,
+    iv_load_policy: 3,
+    origin
+  };
+}
 export function handleAutoplayBlocked(callback) { callback?.(); }
 export function isInvalidPartySessionError(error) { return /401|unauthor|token|party_auth_required|party_session_expired|io server disconnect|server disconnect/i.test(error || ""); }
 export function shouldConfirmPlayNow(currentTrack, confirmPlayNow) { return Boolean(currentTrack && confirmPlayNow); }
@@ -74,7 +85,7 @@ function YouTubePlayer({ player, onPlayer, onEnd, onError }) {
     const create = () => {
       if (cancelled || !rootRef.current) return;
       youtubeRef.current?.destroy?.();
-      youtubeRef.current = new window.YT.Player(rootRef.current, { videoId: track.videoId, playerVars: { autoplay: player.playing ? 1 : 0, playsinline: 1, rel: 0, origin: location.origin }, events: {
+      youtubeRef.current = new window.YT.Player(rootRef.current, { videoId: track.videoId, playerVars: youtubePlayerVars(player.playing), events: {
         onReady: ({ target }) => { target.setVolume(player.volume); if (player.playing) target.playVideo(); },
         onStateChange: ({ data, target }) => {
           const playing = data === window.YT.PlayerState.PLAYING;

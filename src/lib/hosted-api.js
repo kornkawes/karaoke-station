@@ -68,7 +68,7 @@ export const hostedApi = {
 
   queue: (roomId, token) => request(roomPath(roomId, "/queue"), { token }),
   search: (roomId, token, searchText, mode = "both") =>
-    request(`${roomPath(roomId, "/search")}?${query({ q: searchText, mode })}`, { token }),
+    request(`${roomPath(roomId, "/search")}?${query({ q: searchText, mode, limit: 15 })}`, { token }),
   addTrack: (roomId, token, track, { playNow = false, allowDuplicate } = {}) =>
     request(roomPath(roomId, "/queue"), {
       method: "POST",

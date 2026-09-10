@@ -25,6 +25,9 @@ const CLASSIFICATION = {
   instrumental: { classification: "instrumental", badge: "Instrumental" },
   backing: { classification: "backing_track", badge: "Backing Track" }
 };
+const MAX_SEARCH_RESULTS = 15;
+const PREFERRED_CHANNEL = /(?:\bgmm(?:\s*grammy)?\b|จีเอ็มเอ็ม|grammy|genie\s*records|what(?:the)?duck|loveis|rs\s*music|warner\s*music|sony\s*music|universal\s*music)/iu;
+const OFFICIAL_SOURCE = /\bofficial(?:\s+(?:channel|karaoke|music))?\b|ทางการ/iu;
 const POSITIVE_KEYWORDS = [
   { mode: "backing", pattern: /backing[\s_-]*track/iu },
   { mode: "instrumental", pattern: /instrumental/iu },
@@ -52,6 +55,51 @@ function thumbnailUrl(value, videoId) {
 function text(value, fallback = "", maxLength = 300) {
   const valueText = String(value ?? fallback).trim();
   return valueText.slice(0, maxLength) || fallback;
+}
+
+function normalizedSongKey(title) {
+  return String(title || "")
+    .normalize("NFKC")
+    .toLocaleLowerCase("th")
+    .replace(/\b(?:official|karaoke|instrumental|backing[\s-]*track|version|cover)\b/giu, "")
+    .replace(/คาราโอเกะ|อินสทรูเมนทัล|เวอร์ชัน|คัฟเวอร์/gu, "")
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function sourcePriority(track) {
+  const channel = String(track.channelTitle || "");
+  const title = String(track.title || "");
+  let score = 0;
+  if (PREFERRED_CHANNEL.test(channel)) score += 300;
+  if (OFFICIAL_SOURCE.test(channel)) score += 220;
+  if (OFFICIAL_SOURCE.test(title)) score += 120;
+  if (/karaoke|คาราโอเกะ/iu.test(channel)) score += 40;
+  return score;
+}
+
+function viewCount(track) {
+  const value = Number(track.viewCount);
+  return Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+function preferredCandidate(next, current) {
+  const priorityDelta = sourcePriority(next) - sourcePriority(current);
+  if (priorityDelta !== 0) return priorityDelta > 0;
+  return viewCount(next) > viewCount(current);
+}
+
+function dedupeAndRankResults(items, count) {
+  const groups = new Map();
+  items.forEach((item, index) => {
+    const key = normalizedSongKey(item.title) || `video:${item.videoId}`;
+    const existing = groups.get(key);
+    if (!existing) groups.set(key, { item, index });
+    else if (preferredCandidate(item, existing.item)) groups.set(key, { item, index: existing.index });
+  });
+  return [...groups.values()]
+    .sort((left, right) => left.index - right.index)
+    .map(({ item }) => item)
+    .slice(0, count);
 }
 
 export function parseYouTubeInput(input) {
@@ -147,15 +195,15 @@ export class YouTubeService {
     this.resolveInFlight = new Map();
   }
 
-  async search({ query, mode = "both", maxResults = 12 }) {
+  async search({ query, mode = "both", maxResults = MAX_SEARCH_RESULTS }) {
     const trimmed = String(query ?? "").trim();
     if (!trimmed || trimmed.length > 120) {
       throw new AppError(400, "invalid_search_query", "คำค้นต้องมี 1–120 ตัวอักษร");
     }
-    if (!(mode in MODE_SUFFIX)) {
+    if (!Object.prototype.hasOwnProperty.call(MODE_SUFFIX, mode)) {
       throw new AppError(400, "invalid_search_mode", "โหมดค้นหาไม่ถูกต้อง");
     }
-    const count = Math.min(Math.max(Number(maxResults) || 12, 1), 25);
+    const count = Math.min(Math.max(Number(maxResults) || MAX_SEARCH_RESULTS, 1), MAX_SEARCH_RESULTS);
     const cacheKey = `${mode}:${trimmed.toLocaleLowerCase("th")}`;
     const cached = this.cache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
@@ -181,14 +229,15 @@ export class YouTubeService {
       videoEmbeddable: "true",
       videoSyndicated: "true",
       safeSearch: "moderate",
-      maxResults: String(Math.max(count, 25)),
+      maxResults: String(Math.min(Math.max(count * 2, 25), 50)),
       q: `${trimmed}${MODE_SUFFIX[mode]}`,
       key: apiKey
     });
     const searchBody = await fetchJson(this.fetchImpl, searchUrl, { timeoutMs: this.timeoutMs });
     const ids = (searchBody?.items ?? [])
       .map((item) => item?.id?.videoId)
-      .filter((id) => youtubeIdSchema.safeParse(id).success);
+      .filter((id) => youtubeIdSchema.safeParse(id).success)
+      .filter((id, index, all) => all.indexOf(id) === index);
     if (!ids.length) {
       const value = { query: trimmed, mode, results: [] };
       this.cache.set(cacheKey, { value, expiresAt: Date.now() + this.cacheTtlMs });
@@ -198,7 +247,7 @@ export class YouTubeService {
 
     const videosUrl = new URL(VIDEOS_ENDPOINT);
     videosUrl.search = new URLSearchParams({
-      part: "snippet,contentDetails,status",
+      part: "snippet,contentDetails,status,statistics",
       id: ids.join(","),
       key: apiKey
     });
@@ -229,10 +278,13 @@ export class YouTubeService {
         duration: item.contentDetails?.duration ?? null,
         ...(classification ?? { classification: null, badge: null }),
         embeddable: true,
-        canonicalUrl: `https://www.youtube.com/watch?v=${id}`
+        canonicalUrl: `https://www.youtube.com/watch?v=${id}`,
+        ...(Number.isFinite(Number(item.statistics?.viewCount))
+          ? { viewCount: Number(item.statistics.viewCount) }
+          : {})
       }];
     });
-    const value = { query: trimmed, mode, results };
+    const value = { query: trimmed, mode, results: dedupeAndRankResults(results, results.length) };
     this.cache.set(cacheKey, { value, expiresAt: Date.now() + this.cacheTtlMs });
     if (this.cache.size > 1000) this.cache.delete(this.cache.keys().next().value);
     return {

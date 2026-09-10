@@ -177,8 +177,12 @@ function ModernPlayer({ track, onEnded, onError, containerRef, volume = 75, onPr
         videoId: track.videoId,
         playerVars: {
           autoplay: 1,
+          controls: 0,
+          disablekb: 1,
+          fs: 0,
           playsinline: 1,
           rel: 0,
+          iv_load_policy: 3,
           origin: window.location.origin
         },
         events: {

@@ -119,6 +119,56 @@ describe("YouTubeService", () => {
     expect(searchUrl.searchParams.get("maxResults")).toBe("25");
   });
 
+  it("deduplicates song variants and prefers official or major channels before views", async () => {
+    const ids = ["aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc", "ddddddddddd"];
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: ids.map((videoId) => ({ id: { videoId } }))
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [
+          {
+            id: ids[0],
+            status: { embeddable: true, privacyStatus: "public" },
+            snippet: { title: "[KARAOKE] กำแพงหัวใจ - Mirrr", channelTitle: "Small Channel" },
+            statistics: { viewCount: "9000000" },
+            contentDetails: { duration: "PT4M13S" }
+          },
+          {
+            id: ids[1],
+            status: { embeddable: true, privacyStatus: "public" },
+            snippet: { title: "กำแพงหัวใจ - Mirrr (Official Karaoke)", channelTitle: "GMM Grammy Official" },
+            statistics: { viewCount: "1200" },
+            contentDetails: { duration: "PT4M13S" }
+          },
+          {
+            id: ids[2],
+            status: { embeddable: true, privacyStatus: "public" },
+            snippet: { title: "คืนที่ดาวเต็มฟ้า Karaoke", channelTitle: "Random Karaoke" },
+            statistics: { viewCount: "12000" },
+            contentDetails: { duration: "PT3M42S" }
+          },
+          {
+            id: ids[3],
+            status: { embeddable: true, privacyStatus: "public" },
+            snippet: { title: "คืนที่ดาวเต็มฟ้า Karaoke", channelTitle: "Another Karaoke" },
+            statistics: { viewCount: "88000" },
+            contentDetails: { duration: "PT3M42S" }
+          }
+        ]
+      }), { status: 200 }));
+    const service = new YouTubeService({ fetchImpl, getApiKey: () => "test-key" });
+
+    const result = await service.search({ query: "Mirrr", mode: "both", maxResults: 15 });
+
+    expect(result.results).toHaveLength(2);
+    expect(result.results.map((item) => item.videoId)).toEqual([ids[1], ids[3]]);
+    expect(result.results[0].channelTitle).toBe("GMM Grammy Official");
+    expect(result.results[1].viewCount).toBe(88000);
+    expect(new URL(fetchImpl.mock.calls[0][0]).searchParams.get("maxResults")).toBe("30");
+    expect(new URL(fetchImpl.mock.calls[1][0]).searchParams.get("part")).toContain("statistics");
+  });
+
   it("maps quota failures without exposing upstream payloads", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       error: { errors: [{ reason: "quotaExceeded" }] }

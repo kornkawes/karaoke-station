@@ -125,6 +125,41 @@ function Toast({ message, onClose, className = "" }) {
   );
 }
 
+function MarqueeTitle({ title, className = "" }) {
+  const value = String(title || "");
+  const isLong = value.length > 20;
+  return (
+    <strong className={`title-marquee ${isLong ? "is-long" : ""} ${className}`.trim()} title={value}>
+      <span className="title-marquee-track">
+        <span>{value}</span>
+        {isLong && <span aria-hidden="true"> · {value}</span>}
+      </span>
+    </strong>
+  );
+}
+
+function searchTitleKey(title) {
+  return String(title || "")
+    .normalize("NFKC")
+    .toLocaleLowerCase("th")
+    .replace(/\b(?:official|karaoke|instrumental|backing[\s-]*track|version|cover)\b/giu, "")
+    .replace(/คาราโอเกะ|อินสทรูเมนทัล|เวอร์ชัน|คัฟเวอร์/gu, "")
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function uniqueSearchResults(items) {
+  const seenVideoIds = new Set();
+  const seenTitles = new Set();
+  return items.filter((item) => {
+    const videoId = String(item?.videoId || "");
+    const titleKey = searchTitleKey(item?.title);
+    if (!videoId || seenVideoIds.has(videoId) || (titleKey && seenTitles.has(titleKey))) return false;
+    seenVideoIds.add(videoId);
+    if (titleKey) seenTitles.add(titleKey);
+    return true;
+  });
+}
+
 function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyPreviewRoom.playback }) {
   const mountRef = useRef(null);
   const playerRef = useRef(null);
@@ -149,7 +184,16 @@ function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyPreviewR
       mountRef.current.appendChild(mount);
       playerRef.current = new window.YT.Player(mount, {
         videoId: track.videoId,
-        playerVars: { autoplay: playbackRef.current.playing ? 1 : 0, playsinline: 1, rel: 0, origin: window.location.origin },
+        playerVars: {
+          autoplay: playbackRef.current.playing ? 1 : 0,
+          controls: 0,
+          disablekb: 1,
+          fs: 0,
+          playsinline: 1,
+          rel: 0,
+          iv_load_policy: 3,
+          origin: window.location.origin
+        },
         events: {
           onReady: ({ target }) => {
             const next = playbackRef.current;
@@ -525,7 +569,7 @@ function PreviewJoinView({ roomId, joinToken, onJoin }) {
       <div className="desktop-context"><a href="/">← กลับหน้าจอแสดงผล</a><p>LIVE MOBILE REMOTE<br />SCAN QR FROM HOST</p></div>
       <section className="phone join-phone" aria-label="เข้าห้อง Karaoke Station" inert>
         <header className="phone-header">
-          <div><a className="wordmark" href="/"><strong>KAVAOKE</strong> <i>STATION</i></a><p><span className="status-dot" /><RoomIcon size={12} /> {roomId || "—"} · LIVE</p></div>
+          <div className="brand-block"><a className="wordmark" href="/"><strong>KAVAOKE</strong> <i>STATION</i></a><p className="room-meta"><span className="status-dot" /><RoomIcon size={12} /> {roomId || "—"} · LIVE</p></div>
           <div className="header-actions">
             <button type="button" className="share-button svg-button" onClick={shareInvite} disabled={!inviteUrl} aria-label="เปิดคำเชิญห้อง"><Share2 size={16} /><span>แชร์</span></button>
             <button type="button" className="settings-button svg-button" disabled aria-label="ตั้งค่าห้อง"><Settings size={18} /></button>
@@ -556,15 +600,13 @@ function PreviewJoinView({ roomId, joinToken, onJoin }) {
       </section>
       <div className="sheet-root">
         <div className="sheet-backdrop" aria-hidden="true" />
-        <section className="remote-sheet compact-sheet" role="dialog" aria-modal="true" aria-labelledby="joinTitle">
-          <p className="eyebrow"><RoomIcon size={12} /> JOIN · LIVE</p>
-          <h2 id="joinTitle"><RoomIcon size={20} /> เข้าร่วม {roomId || "—"}</h2>
-          <p className="sheet-subtitle">ใส่ชื่อที่จะใช้ขอเพลง</p>
+        <section className="remote-sheet compact-sheet join-sheet" role="dialog" aria-modal="true" aria-labelledby="joinTitle">
+          <h2 id="joinTitle" className="join-room-heading"><RoomIcon size={20} /><span>{roomId || "—"}</span></h2>
           {roomId && joinToken ? (
             <form id="joinForm" onSubmit={submit}>
               <label className="copy-field">ชื่อของคุณ<input autoFocus maxLength={20} value={name} onChange={(event) => setName(event.target.value)} placeholder="เช่น Nut" /></label>
               {error && <p className="form-error">{error}</p>}
-              <button type="submit" className="sheet-action" disabled={loading || !name.trim()}>{loading ? "กำลังเข้าห้อง…" : "เข้าร่วมห้องจริง"}</button>
+              <button type="submit" className="sheet-action" disabled={loading || !name.trim()}>{loading ? "กำลังเข้าห้อง…" : "เข้าร่วมห้อง"}</button>
             </form>
           ) : (
             <div className="empty-state"><b>ต้องสแกน QR จากจอ Host</b><span>ลิงก์นี้ไม่มีข้อมูลเข้าห้องที่ปลอดภัย</span></div>
@@ -581,9 +623,8 @@ function SongRow({ track, favorite, onFavorite, onAdd }) {
       <Cover track={track} />
       <div className="song-info">
         {track.badge && <span className="type-badge">{track.badge}</span>}
-        <strong>{track.title}</strong>
+        <MarqueeTitle title={track.title} />
         <small>{track.channelTitle || "YouTube"}</small>
-        <span>{track.duration || ""} · กด + เพื่อเข้าคิวจริง</span>
       </div>
       <div className="song-actions">
         <button type="button" className={`favorite ${favorite ? "is-favorite" : ""}`} onClick={() => onFavorite(track)} aria-label={favorite ? "ลบจากเพลงโปรด" : "บันทึกเพลงโปรด"}>
@@ -595,51 +636,11 @@ function SongRow({ track, favorite, onFavorite, onAdd }) {
   );
 }
 
-function SearchResultExample() {
-  return (
-    <section className="search-example" aria-label="ตัวอย่างผลการค้นหา">
-      <div className="search-example-heading"><strong>ตัวอย่างผลการค้นหา</strong><span>ไอคอนรายการเพลง</span></div>
-      <div className="song-row search-example-row">
-        <Cover track={null} className="sample-cover sample-cover-sky" />
-        <div className="song-info">
-          <strong>เพลงตัวอย่างจาก KAVAOKE</strong>
-          <small>KAVAOKE Channel</small>
-          <span>3:42 · ตัวอย่างไอคอน</span>
-        </div>
-        <div className="song-actions">
-          <button type="button" className="favorite" disabled aria-label="บันทึกเพลงโปรด"><Star size={19} /></button>
-          <button type="button" className="add-button" disabled aria-label="เพิ่มเพลงตัวอย่าง"><Plus size={20} /></button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function HistoryExample() {
-  const examples = [
-    { title: "เพลงตัวอย่างที่ร้องจบ", channelTitle: "KAVAOKE Originals", status: "ร้องจบแล้ว", cover: "sample-cover-sunset" },
-    { title: "คืนที่ดาวเต็มฟ้า", channelTitle: "KAVAOKE Live", status: "ข้ามแล้ว", cover: "sample-cover-night" }
-  ];
-  return (
-    <section className="history-example" aria-label="ตัวอย่างประวัติการร้อง">
-      <div className="history-example-heading"><strong>ตัวอย่างประวัติ</strong><span>รายการที่เคยร้อง</span></div>
-      {examples.map((track) => (
-        <article className="history-row history-row-example" key={track.title}>
-          <Cover track={null} className={`sample-cover ${track.cover}`} />
-          <div><strong>{track.title}</strong><small>{track.channelTitle} · {track.status}</small></div>
-          <button type="button" className="readd" disabled aria-label={`ร้องอีก ${track.title}`}><Plus size={14} /> ร้องอีก</button>
-        </article>
-      ))}
-    </section>
-  );
-}
-
 function SortableQueueItem({ track, index, busy, onPlayNow, onRemove }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: track.queueId,
     disabled: Boolean(busy)
   });
-  const isLongTitle = String(track.title || "").length > 18;
   return (
     <article
       ref={setNodeRef}
@@ -660,9 +661,7 @@ function SortableQueueItem({ track, index, busy, onPlayNow, onRemove }) {
       </div>
       <Cover track={track} />
       <div>
-        <strong className={`queue-title-marquee ${isLongTitle ? "is-long" : ""}`.trim()} title={track.title}>
-          <span className="queue-title-track"><span>{track.title}</span>{isLongTitle && <span aria-hidden="true"> · {track.title}</span>}</span>
-        </strong>
+        <MarqueeTitle title={track.title} className="queue-title-marquee" />
         <small>{track.channelTitle || "YouTube"} · ขอโดย {track.requestedBy || "สมาชิก"}</small>
         <div className="queue-controls">
           <button type="button" className="play-now" onClick={() => onPlayNow(track)} disabled={Boolean(busy)}>
@@ -691,7 +690,6 @@ function PreviewController({ session, onRevoked }) {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
   const [fairSaving, setFairSaving] = useState(false);
-  const [playbackSaving, setPlaybackSaving] = useState(false);
   const [volumeDraft, setVolumeDraft] = useState(null);
   const queueSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -753,7 +751,7 @@ function PreviewController({ session, onRevoked }) {
       const data = isDirectYouTubeInput(value)
         ? { results: [await guard(() => hostedApi.resolveYouTube(session.roomId, session.token, value))] }
         : await guard(() => hostedApi.search(session.roomId, session.token, value));
-      setResults((data.results || []).map(normalizeTrack).filter(Boolean));
+      setResults(uniqueSearchResults((data.results || []).map(normalizeTrack).filter(Boolean)).slice(0, 15));
       setPhase("done");
     } catch (requestError) {
       setResults([]);
@@ -766,7 +764,7 @@ function PreviewController({ session, onRevoked }) {
     setBusy(`add:${track.videoId}`);
     try {
       await guard(() => hostedApi.addTrack(session.roomId, session.token, track));
-      setNotice(`เพิ่ม “${track.title}” เข้าคิวจริงแล้ว`);
+      setNotice(`เพิ่ม “${track.title}” เข้าคิวแล้ว`);
     } catch (requestError) {
       setNotice(requestError.message || "เพิ่มเพลงไม่สำเร็จ");
     } finally {
@@ -861,7 +859,6 @@ function PreviewController({ session, onRevoked }) {
     const patch = playbackPending.current;
     playbackPending.current = null;
     playbackMutating.current = true;
-    setPlaybackSaving(true);
     try {
       await guard(() => hostedApi.updatePlayback(session.roomId, session.token, patch));
     } catch (requestError) {
@@ -869,12 +866,15 @@ function PreviewController({ session, onRevoked }) {
     } finally {
       playbackMutating.current = false;
       if (playbackPending.current) void flushPlayback();
-      else setPlaybackSaving(false);
     }
   };
 
   const updatePlayback = (patch) => {
     if (!current) return;
+    setRoom((previous) => ({
+      ...previous,
+      playback: { ...previous.playback, ...patch }
+    }));
     playbackPending.current = { ...(playbackPending.current || {}), ...patch };
     void flushPlayback();
   };
@@ -884,8 +884,8 @@ function PreviewController({ session, onRevoked }) {
     setVolumeDraft(volume);
     clearTimeout(volumeTimer.current);
     volumeTimer.current = setTimeout(() => {
-      setVolumeDraft(null);
       updatePlayback({ volume });
+      setVolumeDraft(null);
     }, 240);
   };
 
@@ -894,7 +894,7 @@ function PreviewController({ session, onRevoked }) {
     try {
       if (navigator.share) await navigator.share({ title: "Karaoke Station", text: `เข้าห้อง ${session.roomId}`, url });
       else await navigator.clipboard.writeText(url);
-      setNotice("ลิงก์เข้าห้องจริงพร้อมส่งให้เพื่อนแล้ว");
+      setNotice("ลิงก์เข้าห้องพร้อมส่งให้เพื่อนแล้ว");
     } catch {
       setNotice("ยังไม่ได้แชร์ลิงก์");
     }
@@ -909,9 +909,9 @@ function PreviewController({ session, onRevoked }) {
       <div className="desktop-context"><a href="/">← กลับหน้าจอ Host</a><p>LIVE MOBILE REMOTE<br />REAL <RoomIcon size={12} /> · SOCKET SYNC</p></div>
       <section className="phone" aria-label="Karaoke Station mobile remote" inert={Boolean(sheet)}>
         <header className="phone-header">
-          <div>
+          <div className="brand-block">
             <a className="wordmark" href="/"><strong>KAVAOKE</strong> <i>STATION</i></a>
-            <p><span className={`status-dot ${connected ? "is-online" : ""}`} /><RoomIcon size={12} /> {session.roomId} · {connected ? "เชื่อมต่อแล้ว" : "กำลังเชื่อมต่อ"}</p>
+            <p className="room-meta"><span className={`status-dot ${connected ? "is-online" : ""}`} /><RoomIcon size={12} /> <span>{session.roomId}</span><span>·</span><span>{connected ? "เชื่อมต่อแล้ว" : "กำลังเชื่อมต่อ"}</span></p>
           </div>
           <div className="header-actions">
             <button type="button" className="share-button svg-button" onClick={() => setSheet("share")} aria-label="เปิดคำเชิญห้อง"><Share2 size={16} /><span>แชร์</span></button>
@@ -934,7 +934,6 @@ function PreviewController({ session, onRevoked }) {
               {phase === "loading" && <div className="empty-state"><LoaderCircle className="spin" size={30} /><span>กำลังค้นหาจาก YouTube…</span></div>}
               {phase === "error" && <div className="empty-state"><b>ค้นหาไม่สำเร็จ</b><span>ตรวจลิงก์หรือคำค้น แล้วลองใหม่อีกครั้ง</span></div>}
               {filter === "favorites" && displayedResults.length === 0 && <div className="empty-state"><b>ยังไม่มีเพลงโปรด</b><span>กดดาวที่เพลงเพื่อเก็บไว้ในเครื่องนี้</span></div>}
-              {filter === "all" && phase === "idle" && <SearchResultExample />}
               {phase === "done" && filter === "all" && displayedResults.length === 0 && <div className="empty-state"><b>ไม่พบเพลง</b><span>ลองเพิ่มชื่อศิลปิน หรือวางลิงก์ YouTube โดยตรง</span></div>}
               {displayedResults.length > 0 && <div className="result-heading"><p>{filter === "favorites" ? "เพลงโปรดของฉัน" : "ผลการค้นหา"}</p><small>{displayedResults.length} รายการ</small></div>}
               <ul className="song-list">
@@ -962,10 +961,10 @@ function PreviewController({ session, onRevoked }) {
             <>
               <section className="history-title"><div className="history-heading"><h1>ประวัติการร้อง</h1><p className="history-count">{history.length} เพลง</p></div></section>
               <section className="history-list">
-                {history.length === 0 && <HistoryExample />}
+                {history.length === 0 && <div className="empty-state"><b>ยังไม่มีประวัติการร้อง</b><span>เพลงที่ร้องจบจะแสดงที่นี่</span></div>}
                 {history.map((item, index) => {
                   const track = normalizeTrack(item);
-                  return <article className="history-row" key={item.id || `${item.videoId}-${index}`}><Cover track={track} /><div><strong>{track.title}</strong><small>{track.channelTitle || "YouTube"} · {item.status === "completed" ? "ร้องจบแล้ว" : item.status === "skipped" ? "ข้ามแล้ว" : "หยุดก่อนจบ"}</small></div><button type="button" className="readd" onClick={() => add(track)} disabled={busy === `add:${track.videoId}`}><Plus size={14} /> ร้องอีก</button></article>;
+                  return <article className="history-row" key={item.id || `${item.videoId}-${index}`}><Cover track={track} /><div><MarqueeTitle title={track.title} /><small>{track.channelTitle || "YouTube"} · {item.status === "completed" ? "ร้องจบแล้ว" : item.status === "skipped" ? "ข้ามแล้ว" : "หยุดก่อนจบ"}</small></div><button type="button" className="readd" onClick={() => add(track)} disabled={busy === `add:${track.videoId}`}><Plus size={14} /> ร้องอีก</button></article>;
                 })}
               </section>
             </>
@@ -978,12 +977,12 @@ function PreviewController({ session, onRevoked }) {
             type="button"
             className="dock-play svg-button"
             onClick={() => updatePlayback({ playing: !room.playback?.playing })}
-            disabled={!current || playbackSaving || Boolean(busy)}
+            disabled={!current || Boolean(busy)}
             aria-label={room.playback?.playing ? "พักเพลง" : "เล่นเพลงต่อ"}
           >
             {room.playback?.playing ? <Pause size={20} /> : <Play size={20} />}
           </button>
-          <button type="button" className="dock-details" onClick={() => setSheet("remote")}><span>{current ? "Now playing" : "WAITING"}</span><strong>{current?.title || "รอเพลงแรก"}</strong><small>{current ? `${current.channelTitle || "YouTube"} · ${current.requestedBy || "สมาชิก"}` : "เพิ่มเพลงจากหน้าค้นหาได้เลย"}</small></button>
+          <button type="button" className="dock-details" onClick={() => setSheet("remote")}><span>{current ? "Now playing" : "WAITING"}</span><MarqueeTitle title={current?.title || "รอเพลงแรก"} /><small>{current ? `${current.channelTitle || "YouTube"} · ${current.requestedBy || "สมาชิก"}` : "เพิ่มเพลงจากหน้าค้นหาได้เลย"}</small></button>
           <button type="button" className="dock-expand svg-button" onClick={() => setSheet("remote")} aria-label="เปิดรีโมท"><Maximize2 size={18} /></button>
         </section>
 
@@ -1002,12 +1001,12 @@ function PreviewController({ session, onRevoked }) {
             {sheet === "remote" && (
               <>
                 <p className="eyebrow">MOBILE REMOTE · LIVE</p>
-                <h2 id="remoteSheetTitle">{current?.title || "รอเพลงแรก"}</h2>
+                <h2 id="remoteSheetTitle"><MarqueeTitle title={current?.title || "รอเพลงแรก"} /></h2>
                 <p className="sheet-subtitle">{current ? <span>{current.channelTitle || "YouTube"}</span> : "ยังไม่มีเพลงกำลังเล่น"}</p>
                 <div className="remote-primary">
                   <button
                     type="button"
-                    disabled={!current || playbackSaving}
+                    disabled={!current}
                     onClick={() => updatePlayback({ playing: !room.playback?.playing })}
                     aria-label={room.playback?.playing ? "พักเพลง" : "เล่นเพลงต่อ"}
                   >
@@ -1018,14 +1017,14 @@ function PreviewController({ session, onRevoked }) {
                   </button>
                 </div>
                 <div className="volume-row">
-                  <button type="button" disabled={!current || playbackSaving} onClick={() => updatePlayback({ muted: !room.playback?.muted })} aria-label={room.playback?.muted ? "เปิดเสียง" : "ปิดเสียง"}>
+                  <button type="button" disabled={!current} onClick={() => updatePlayback({ muted: !room.playback?.muted })} aria-label={room.playback?.muted ? "เปิดเสียง" : "ปิดเสียง"}>
                     {room.playback?.muted ? <VolumeX size={19} /> : <Volume2 size={19} />}
                   </button>
-                  <label>ระดับเสียง <output>{volumeDraft ?? room.playback?.volume ?? 75}%</output><input type="range" min="0" max="100" value={volumeDraft ?? room.playback?.volume ?? 75} disabled={!current || playbackSaving} onChange={changeVolume} /></label>
+                  <label>ระดับเสียง <output>{volumeDraft ?? room.playback?.volume ?? 75}%</output><input type="range" min="0" max="100" value={volumeDraft ?? room.playback?.volume ?? 75} disabled={!current} onChange={changeVolume} /></label>
                 </div>
               </>
             )}
-            {sheet === "share" && <><p className="eyebrow">INVITATION · LIVE</p><h2 id="remoteSheetTitle">ชวนเพื่อนเข้าห้อง</h2><p className="sheet-subtitle"><RoomIcon size={12} /> {session.roomId} · ลิงก์นี้มี join token ใน fragment ที่ไม่ถูกส่งไปกับ request</p><label className="copy-field">ลิงก์เข้าร่วม<input readOnly value={partyJoinUrlFor(session.roomId, session.joinToken)} /></label><button type="button" className="sheet-action" onClick={shareRoom}><Copy size={16} /> คัดลอก / แชร์ลิงก์จริง</button></>}
+            {sheet === "share" && <><p className="eyebrow">INVITATION · LIVE</p><h2 id="remoteSheetTitle">ชวนเพื่อนเข้าห้อง</h2><p className="sheet-subtitle"><RoomIcon size={12} /> {session.roomId} · ลิงก์นี้มี join token ใน fragment ที่ไม่ถูกส่งไปกับ request</p><label className="copy-field">ลิงก์เข้าร่วม<input readOnly value={partyJoinUrlFor(session.roomId, session.joinToken)} /></label><button type="button" className="sheet-action" onClick={shareRoom}><Copy size={16} /> คัดลอก / แชร์ลิงก์</button></>}
             {sheet === "settings" && <><p className="eyebrow"><RoomIcon size={12} /> SESSION · LIVE</p><h2 id="remoteSheetTitle">ข้อมูลห้อง</h2><p className="sheet-subtitle">คุณเข้าร่วมในชื่อ <strong>{session.displayName}</strong></p><div className="session-info"><span><RoomIcon size={12} /></span><strong>{session.roomId}</strong><span>สถานะ</span><strong>{connected ? "เชื่อมต่อแล้ว" : "กำลังเชื่อมต่อ"}</strong></div><button type="button" className="sheet-danger" onClick={() => { clearSession(CONTROLLER_STORAGE_KEY); onRevoked(); }}>ออกจากห้องนี้</button></>}
           </section>
         </div>
