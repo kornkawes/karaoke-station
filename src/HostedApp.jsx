@@ -42,6 +42,7 @@ import {
   writeSession
 } from "./lib/hosted-api";
 import { loadYouTubeIframeApi } from "./lib/youtube";
+import { formatIdleCountdown } from "./lib/idle-session";
 import "./hosted.css";
 import "./after-hours.css";
 
@@ -294,6 +295,8 @@ function DisplayView() {
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [idleWarning, setIdleWarning] = useState(null);
+  const [idleNow, setIdleNow] = useState(() => Date.now());
   const toastTimer = useRef();
   const videoContainerRef = useRef(null);
 
@@ -304,6 +307,14 @@ function DisplayView() {
   }, []);
 
   useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  useEffect(() => {
+    if (!idleWarning?.closesAt) return undefined;
+    const tick = () => setIdleNow(Date.now());
+    tick();
+    const timer = setInterval(tick, 1_000);
+    return () => clearInterval(timer);
+  }, [idleWarning?.closesAt]);
 
   useEffect(() => {
     const syncFullscreen = () => setIsFullscreen(document.fullscreenElement === videoContainerRef.current);
@@ -352,7 +363,12 @@ function DisplayView() {
     if (!session) return undefined;
     let stop = false;
     hostedApi.room(session.roomId, session.token)
-      .then((view) => { if (!stop) setRoom((old) => viewToState(view, old)); })
+      .then((view) => {
+        if (!stop) {
+          setRoom((old) => viewToState(view, old));
+          setIdleWarning(view.idle?.warning ? view.idle : null);
+        }
+      })
       .catch((requestError) => {
         if (stop) return;
         if (isSessionRevokedError(`${requestError.code} ${requestError.status}`)) {
@@ -367,7 +383,17 @@ function DisplayView() {
     if (!session) return undefined;
     return connectRoom(session, (event) => {
       if (event.type === "connection") setConnected(event.connected);
-      if (event.type === "room") setRoom((old) => viewToState(event.view, old));
+      if (event.type === "room") {
+        setRoom((old) => viewToState(event.view, old));
+        setIdleWarning(event.view?.idle?.warning ? event.view.idle : null);
+      }
+      if (event.type === "presence") {
+        const liveControllers = Number.isFinite(Number(event.connectedControllerCount))
+          ? Number(event.connectedControllerCount)
+          : Math.max(0, (Number(event.count) || 0) - 1);
+        if (liveControllers <= 0) setIdleWarning(null);
+      }
+      if (event.type === "idle-warning") setIdleWarning({ closesAt: event.closesAt, warningAt: event.warningAt });
       if (event.type === "action") {
         const verb = { add: "เพิ่ม", remove: "ลบ", reorder: "ย้าย", skip: "ข้าม", play_now: "เลือกเล่นทันที" }[event.action.action] || "จัดการ";
         notify(`${event.action.actor} ${verb} “${event.action.track?.title || "เพลง"}”`);
@@ -376,6 +402,7 @@ function DisplayView() {
         clearSession(HOST_STORAGE_KEY);
         setSession(null);
         setConnected(false);
+        setIdleWarning(null);
       }
     });
   }, [session, notify]);
@@ -448,6 +475,7 @@ function DisplayView() {
   }
 
   const joinUrl = sessionJoinUrlFor(session);
+  const idleCountdown = idleWarning?.closesAt ? formatIdleCountdown(idleWarning.closesAt, idleNow) : "--:--";
 
   return (
     <main className="hosted-display">
@@ -461,6 +489,13 @@ function DisplayView() {
           containerRef={videoContainerRef}
           playback={room.playback}
         />
+
+        {idleWarning?.closesAt && (
+          <aside className="hosted-idle-warning" role="alert" data-idle-warning>
+            <strong>ห้องกำลังจะปิด</strong>
+            <span>{idleCountdown === "00:00" ? "กำลังปิดห้อง…" : `ไม่มีการเลือกเพลง · เหลือ ${idleCountdown}`}</span>
+          </aside>
+        )}
 
         <header className="hosted-topbar" aria-label="สถานะจอคาราโอเกะ">
           <div className="hosted-meta-text">

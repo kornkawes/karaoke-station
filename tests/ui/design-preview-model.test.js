@@ -72,6 +72,20 @@ describe("design preview hosted adapter", () => {
     expect(partial.controllerCount).toBe(2);
   });
 
+  it("prefers live controller sockets over registered session count", () => {
+    const joined = viewToPreviewRoom({
+      revision: 4,
+      controllerCount: 7,
+      connectedControllerCount: 1,
+      idle: { phase: "idle", warning: false, closesAt: "2026-07-29T12:10:00.000Z" },
+      queue: [],
+      current: null
+    });
+    expect(joined.controllerCount).toBe(1);
+    expect(joined.connectedControllerCount).toBe(1);
+    expect(joined.idle.phase).toBe("idle");
+  });
+
   it("ignores stale room snapshots after a newer realtime revision", () => {
     const current = viewToPreviewRoom({
       revision: 2,

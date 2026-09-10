@@ -16,6 +16,7 @@ const distDir = path.resolve(projectDir, "dist");
 const MAX_SOCKETS_PER_TOKEN = 3;
 const MAX_SOCKETS_PER_ROOM = 60;
 const SWEEP_INTERVAL_MS = 60_000;
+const IDLE_CHECK_INTERVAL_MS = 1_000;
 
 const runtime = await createHostedApplication({
   env: process.env,
@@ -42,6 +43,8 @@ io = new SocketServer(server, {
 
 /** socketsPerToken keeps one bearer from opening unbounded connections (F-05). */
 const socketsPerToken = new Map();
+/** Live controller sockets per room; host sockets are intentionally excluded. */
+const controllerSocketsPerRoom = new Map();
 
 function countFor(map, key) {
   return map.get(key) ?? 0;
@@ -55,6 +58,18 @@ function decrement(map, key) {
   const next = countFor(map, key) - 1;
   if (next <= 0) map.delete(key);
   else map.set(key, next);
+}
+
+function controllerSocketCount(roomId) {
+  return countFor(controllerSocketsPerRoom, roomId);
+}
+
+function syncConnectedControllerCount(roomId) {
+  const room = runtime.store.get(roomId);
+  if (!room) return 0;
+  const count = controllerSocketCount(roomId);
+  runtime.store.setConnectedControllerCount(roomId, count);
+  return count;
 }
 
 function roomChannel(roomId) {
@@ -111,6 +126,10 @@ io.use((socket, next) => {
 io.on("connection", (socket) => {
   const { roomId, token } = socket.data;
   increment(socketsPerToken, token);
+  if (socket.data.role === "controller") {
+    increment(controllerSocketsPerRoom, roomId);
+    syncConnectedControllerCount(roomId);
+  }
   socket.join(roomChannel(roomId));
 
   // Handshake auth alone is not enough: a socket that connected while the token
@@ -136,6 +155,12 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     clearTimeout(expiryTimer);
     decrement(socketsPerToken, token);
+    if (socket.data.role === "controller") {
+      decrement(controllerSocketsPerRoom, roomId);
+      // Keep the store authoritative immediately; the broadcast remains
+      // debounced to avoid a presence storm during reconnects.
+      syncConnectedControllerCount(roomId);
+    }
     emitPresence(roomId);
   });
 });
@@ -148,19 +173,35 @@ function emitPresence(roomId) {
     presenceTimers.delete(roomId);
     const count = io.sockets.adapter.rooms.get(roomChannel(roomId))?.size ?? 0;
     const controllerCount = runtime.store.get(roomId)?.controllers?.size ?? 0;
-    io.to(roomChannel(roomId)).emit("room:presence", { roomId, count, controllerCount });
+    const connectedControllerCount = controllerSocketCount(roomId);
+    runtime.store.setConnectedControllerCount(roomId, connectedControllerCount);
+    io.to(roomChannel(roomId)).emit("room:presence", {
+      roomId,
+      count,
+      controllerCount,
+      connectedControllerCount
+    });
   }, 500));
 }
 
 // A controller is registered through REST before its Socket.IO connection is
 // established. Broadcast that authoritative count immediately so the Host can
 // leave the invite lobby without waiting for the socket debounce.
-runtime.events.on("room:presence", ({ roomId, controllerCount }) => {
+runtime.events.on("room:presence", ({ roomId, controllerCount, connectedControllerCount }) => {
   const count = io.sockets.adapter.rooms.get(roomChannel(roomId))?.size ?? 0;
+  // The socket map is authoritative. The REST join event can arrive before a
+  // new controller's socket handshake, so never let its reported count erase a
+  // controller socket that is already live.
+  const reportedLiveControllers = Number.isFinite(Number(connectedControllerCount))
+    ? Number(connectedControllerCount)
+    : 0;
+  const liveControllers = Math.max(controllerSocketCount(roomId), reportedLiveControllers);
+  runtime.store.setConnectedControllerCount(roomId, liveControllers);
   io.to(roomChannel(roomId)).emit("room:presence", {
     roomId,
     count,
-    controllerCount: Number(controllerCount) || 0
+    controllerCount: Number(controllerCount) || 0,
+    connectedControllerCount: liveControllers
   });
 });
 
@@ -180,8 +221,16 @@ async function disconnectRoom(roomId, code) {
   }
 }
 
-runtime.events.on("room:closed", ({ roomId }) => {
-  void disconnectRoom(roomId, "room_closed");
+runtime.events.on("room:closed", ({ roomId, reason }) => {
+  void disconnectRoom(roomId, reason === "idle_timeout" ? "room_idle_timeout" : "room_closed");
+});
+
+runtime.events.on("room:idle-warning", ({ roomId, closesAt, warningAt }) => {
+  io.to(roomChannel(roomId)).emit("room:idle-warning", {
+    roomId,
+    closesAt: new Date(closesAt).toISOString(),
+    warningAt: new Date(warningAt).toISOString()
+  });
 });
 
 // Rotation must invalidate live sockets too, not just future REST calls.
@@ -194,6 +243,18 @@ const sweepTimer = setInterval(() => {
   if (removed > 0) console.log(`room sweep: removed ${removed} expired room(s)`);
 }, SWEEP_INTERVAL_MS);
 sweepTimer.unref?.();
+
+const idleTimer = setInterval(() => {
+  const result = runtime.store.sweepIdle();
+  for (const warning of result.warnings) {
+    runtime.events.emit("room:idle-warning", warning);
+  }
+  for (const expired of result.expired) {
+    console.log(`room idle timeout: ${expired.roomId}`);
+    runtime.events.emit("room:closed", { roomId: expired.roomId, reason: "idle_timeout" });
+  }
+}, IDLE_CHECK_INTERVAL_MS);
+idleTimer.unref?.();
 
 server.listen(port, "0.0.0.0", () => {
   console.log(`KaraokeStation hosted: listening on :${port}`);
@@ -208,6 +269,7 @@ server.listen(port, "0.0.0.0", () => {
 async function shutdown(signal) {
   console.log(`\nStopping KaraokeStation hosted (${signal})...`);
   clearInterval(sweepTimer);
+  clearInterval(idleTimer);
   for (const timer of presenceTimers.values()) clearTimeout(timer);
   presenceTimers = new Map();
   await new Promise((resolve) => io.close(resolve));

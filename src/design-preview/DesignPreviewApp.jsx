@@ -43,6 +43,7 @@ import {
   writeSession
 } from "../lib/hosted-api";
 import { loadYouTubeIframeApi } from "../lib/youtube";
+import { formatIdleCountdown } from "../lib/idle-session";
 import stageImage from "../../design-preview/assets/stage.png";
 import {
   applyPreviewRoomView,
@@ -137,6 +138,8 @@ function MarqueeTitle({ title, className = "" }) {
     </strong>
   );
 }
+
+export { formatIdleCountdown };
 
 function searchTitleKey(title) {
   return String(title || "")
@@ -277,6 +280,8 @@ function PreviewDisplayView() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [idleWarning, setIdleWarning] = useState(null);
+  const [idleNow, setIdleNow] = useState(() => Date.now());
   const stageRef = useRef(null);
   const failureRef = useRef({ videoId: "", count: 0 });
 
@@ -304,6 +309,14 @@ function PreviewDisplayView() {
     return () => clearTimeout(timer);
   }, [notice]);
 
+  useEffect(() => {
+    if (!idleWarning?.closesAt) return undefined;
+    const tick = () => setIdleNow(Date.now());
+    tick();
+    const timer = setInterval(tick, 1_000);
+    return () => clearInterval(timer);
+  }, [idleWarning?.closesAt]);
+
   const createRoom = useCallback(async () => {
     setCreating(true);
     setError("");
@@ -327,6 +340,7 @@ function PreviewDisplayView() {
       setRoom(emptyPreviewRoom);
       setPresenting(false);
       setConnected(false);
+      setIdleWarning(null);
       // The first room is created automatically on a fresh Host screen. Keep
       // that invite state quiet; only a deliberate room rotation needs feedback.
       setNotice(previous?.roomId ? "เปิดห้องใหม่แล้ว" : "");
@@ -346,11 +360,16 @@ function PreviewDisplayView() {
     let live = true;
     hostedApi.room(session.roomId, session.token)
       .then((view) => {
-        if (live) setRoom((previous) => applyPreviewRoomView(view, previous));
+        if (live) {
+          const nextRoom = applyPreviewRoomView(view, emptyPreviewRoom);
+          setRoom(nextRoom);
+          setIdleWarning(nextRoom.idle?.warning ? nextRoom.idle : null);
+        }
       })
       .catch((requestError) => {
         if (!live) return;
         if (isSessionRevokedError(`${requestError.code} ${requestError.status}`)) {
+          clearHostPresentation(session.roomId);
           clearSession(HOST_STORAGE_KEY);
           setSession(null);
         } else {
@@ -364,26 +383,35 @@ function PreviewDisplayView() {
     if (!session) return undefined;
     return connectRoom(session, (event) => {
       if (event.type === "connection") setConnected(event.connected);
-      if (event.type === "room") setRoom((previous) => applyPreviewRoomView(event.view, previous));
-      if (event.type === "presence") {
-        // New servers provide controllerCount. For older servers, `count`
-        // includes the Host socket, so subtract that one socket as a safe
-        // compatibility fallback.
-        const rawControllerCount = Number(event.controllerCount);
-        const rawSocketCount = Number(event.count);
-        const controllerCount = Number.isFinite(rawControllerCount)
-          ? rawControllerCount
-          : Math.max(0, (Number.isFinite(rawSocketCount) ? rawSocketCount : 0) - 1);
-        setRoom((previous) => ({ ...previous, controllerCount }));
-        if (controllerCount > 0) enterPresentation(controllerCount);
+      if (event.type === "room") {
+        setRoom((previous) => {
+          const nextRoom = applyPreviewRoomView(event.view, previous);
+          setIdleWarning(nextRoom.idle?.warning ? nextRoom.idle : null);
+          return nextRoom;
+        });
       }
+      if (event.type === "presence") {
+        // New servers provide controller-only live sockets. For older servers,
+        // `count` includes the Host socket, so subtract that one as a fallback.
+        const rawConnectedControllerCount = Number(event.connectedControllerCount);
+        const rawSocketCount = Number(event.count);
+        const controllerCount = Number.isFinite(rawConnectedControllerCount)
+          ? rawConnectedControllerCount
+          : Math.max(0, (Number.isFinite(rawSocketCount) ? rawSocketCount : 0) - 1);
+        setRoom((previous) => ({ ...previous, controllerCount, connectedControllerCount: controllerCount }));
+        if (controllerCount > 0) enterPresentation(controllerCount);
+        else setIdleWarning(null);
+      }
+      if (event.type === "idle-warning") setIdleWarning({ closesAt: event.closesAt, warningAt: event.warningAt });
       if (event.type === "action" && event.action?.action === "add") {
         setNotice(`เพิ่ม “${event.action.track?.title || "เพลง"}” แล้ว`);
       }
       if (event.type === "revoked") {
+        clearHostPresentation(session.roomId);
         clearSession(HOST_STORAGE_KEY);
         setSession(null);
         setConnected(false);
+        setIdleWarning(null);
       }
     });
   }, [enterPresentation, session]);
@@ -465,6 +493,7 @@ function PreviewDisplayView() {
   // real, scannable controller URL after a refresh as well.
   const joinUrl = sessionJoinUrlFor(session);
   const isPresenting = presenting || room.controllerCount > 0;
+  const idleCountdown = idleWarning?.closesAt ? formatIdleCountdown(idleWarning.closesAt, idleNow) : "--:--";
   return (
     <main className={`host-display-page preview-functional-host ${isPresenting ? "is-presenting" : "is-invite"}`}>
       <section
@@ -474,6 +503,13 @@ function PreviewDisplayView() {
         aria-label={room.current ? `จอเพลงจริง · ${room.current.title}` : "จอเพลงจริง · รอเพลงแรก"}
       >
         <PreviewYouTubeStage track={room.current} onEnded={advance} onError={reportFailure} playback={room.playback} />
+
+        {idleWarning?.closesAt && (
+          <aside className="host-idle-warning" role="alert" data-idle-warning>
+            <span className="host-idle-warning-label">ห้องกำลังจะปิด</span>
+            <span>{idleCountdown === "00:00" ? "กำลังปิดห้อง…" : `ไม่มีการเลือกเพลง · เหลือ ${idleCountdown}`}</span>
+          </aside>
+        )}
 
         {!isPresenting && (
           <aside className="join-corner invite-gate" aria-label="สแกน QR เพื่อเข้าห้อง">

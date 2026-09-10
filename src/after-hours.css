@@ -392,6 +392,36 @@ body.after-hours-hosted { min-width: 0; }
 .after-hours-remote .empty-state svg { color: var(--lime); }
 .after-hours-remote .display-toast { border-color: #c6ef4860; border-left-color: var(--lime); background: #1b1d20; color: var(--paper); }
 
+/* Shared legacy-host fallback for the controller-idle warning. */
+.hosted-display .hosted-idle-warning{
+  position:absolute;
+  top:86px;
+  left:50%;
+  z-index:12;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  max-width:min(620px,calc(100vw - 40px));
+  padding:9px 14px;
+  transform:translateX(-50%);
+  border:1px solid rgba(255,190,93,.56);
+  border-left:3px solid #ffbe5d;
+  border-radius:10px;
+  background:rgba(17,13,8,.72);
+  box-shadow:0 12px 30px rgba(0,0,0,.34);
+  backdrop-filter:blur(18px) saturate(145%);
+  -webkit-backdrop-filter:blur(18px) saturate(145%);
+  color:var(--paper);
+  font-size:12px;
+  line-height:1.2;
+  white-space:nowrap;
+}
+.hosted-display .hosted-idle-warning::before{content:"";width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:#ffbe5d;box-shadow:0 0 0 4px rgba(255,190,93,.14);animation:legacy-idle-warning-breathe 1.8s ease-in-out infinite}
+.hosted-display .hosted-idle-warning strong{color:#ffcf83;letter-spacing:.08em}
+@keyframes legacy-idle-warning-breathe{0%,100%{opacity:.5;transform:scale(.82)}50%{opacity:1;transform:scale(1)}}
+@media(max-width:700px){.hosted-display .hosted-idle-warning{top:74px;max-width:calc(100vw - 32px);font-size:10px}}
+@media(prefers-reduced-motion:reduce){.hosted-display .hosted-idle-warning::before{animation:none}}
+
 @media (max-width: 560px) {
   .hosted-side { left: 12px; bottom: 12px; grid-template-columns: 60px auto; padding: 6px; }
   .hosted-side svg { width: 60px; height: 60px; }

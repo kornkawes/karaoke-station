@@ -54,6 +54,7 @@ import {
 } from "../lib/hosted-api";
 import { karaokeApi } from "../lib/api";
 import { loadYouTubeIframeApi } from "../lib/youtube";
+import { formatIdleCountdown } from "../lib/idle-session";
 import "./modern.css";
 
 const emptyRoomState = {
@@ -379,6 +380,8 @@ export function ModernDisplayView() {
   const [lyricsOpen, setLyricsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [playbackTime, setPlaybackTime] = useState({ time: 0, duration: 0 });
+  const [idleWarning, setIdleWarning] = useState(null);
+  const [idleNow, setIdleNow] = useState(() => Date.now());
 
   const toastTimer = useRef();
   const videoContainerRef = useRef(null);
@@ -390,6 +393,14 @@ export function ModernDisplayView() {
   }, []);
 
   useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  useEffect(() => {
+    if (!idleWarning?.closesAt) return undefined;
+    const tick = () => setIdleNow(Date.now());
+    tick();
+    const timer = setInterval(tick, 1_000);
+    return () => clearInterval(timer);
+  }, [idleWarning?.closesAt]);
 
   useEffect(() => {
     const syncFullscreen = () => setIsFullscreen(document.fullscreenElement === videoContainerRef.current);
@@ -422,6 +433,7 @@ export function ModernDisplayView() {
       writeSession(HOST_STORAGE_KEY, next);
       setSession(next);
       setRoom(emptyRoomState);
+      setIdleWarning(null);
       notify("เปิดห้องคาราโอเกะใหม่เรียบร้อย 🎉");
     } catch (requestError) {
       setError(requestError.message || "สร้างห้องไม่สำเร็จ");
@@ -438,12 +450,17 @@ export function ModernDisplayView() {
     if (!session) return undefined;
     let stop = false;
     hostedApi.room(session.roomId, session.token)
-      .then((view) => { if (!stop) setRoom((old) => viewToState(view, old)); })
+      .then((view) => {
+        if (stop) return;
+        setRoom((old) => viewToState(view, old));
+        setIdleWarning(view.idle?.warning ? view.idle : null);
+      })
       .catch((requestError) => {
         if (stop) return;
         if (isSessionRevokedError(`${requestError.code} ${requestError.status}`)) {
           clearSession(HOST_STORAGE_KEY);
           setSession(null);
+          setIdleWarning(null);
         }
       });
     return () => { stop = true; };
@@ -453,7 +470,17 @@ export function ModernDisplayView() {
     if (!session) return undefined;
     return connectRoom(session, (event) => {
       if (event.type === "connection") setConnected(event.connected);
-      if (event.type === "room") setRoom((old) => viewToState(event.view, old));
+      if (event.type === "room") {
+        setRoom((old) => viewToState(event.view, old));
+        setIdleWarning(event.view?.idle?.warning ? event.view.idle : null);
+      }
+      if (event.type === "presence") {
+        const liveControllers = Number.isFinite(Number(event.connectedControllerCount))
+          ? Number(event.connectedControllerCount)
+          : Math.max(0, (Number(event.count) || 0) - 1);
+        if (liveControllers <= 0) setIdleWarning(null);
+      }
+      if (event.type === "idle-warning") setIdleWarning({ closesAt: event.closesAt, warningAt: event.warningAt });
       if (event.type === "action") {
         const verb = { add: "เพิ่ม", remove: "ลบ", reorder: "ย้าย", skip: "ข้าม", play_now: "เลือกเล่นทันที" }[event.action.action] || "จัดการ";
         notify(`${event.action.actor} ${verb} “${event.action.track?.title || "เพลง"}”`);
@@ -462,6 +489,7 @@ export function ModernDisplayView() {
         clearSession(HOST_STORAGE_KEY);
         setSession(null);
         setConnected(false);
+        setIdleWarning(null);
       }
     });
   }, [session, notify]);
@@ -544,6 +572,34 @@ export function ModernDisplayView() {
         onProgress={setPlaybackTime}
       />
       <div className="m-stage-vignette" />
+
+      {idleWarning?.closesAt && (
+        <div
+          role="alert"
+          data-idle-warning
+          style={{
+            position: "absolute",
+            top: "5.5rem",
+            left: "50%",
+            zIndex: 12,
+            display: "flex",
+            gap: "0.65rem",
+            alignItems: "center",
+            padding: "0.55rem 0.8rem",
+            transform: "translateX(-50%)",
+            border: "1px solid rgba(255,190,93,.56)",
+            borderLeft: "3px solid #ffbe5d",
+            borderRadius: "0.65rem",
+            background: "rgba(17,13,8,.78)",
+            color: "#fff",
+            fontSize: "0.78rem",
+            whiteSpace: "nowrap"
+          }}
+        >
+          <span style={{ color: "#ffcf83", fontWeight: 800 }}>ห้องกำลังจะปิด</span>
+          <span>ไม่มีการเลือกเพลง · เหลือ {formatIdleCountdown(idleWarning.closesAt, idleNow)}</span>
+        </div>
+      )}
 
       {/* Top Floating Smart HUD */}
       <header className="m-top-hud" aria-label="สถานะจอคาราโอเกะ">

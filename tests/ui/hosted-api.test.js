@@ -174,6 +174,7 @@ describe("revocation detection", () => {
     "room_not_found",
     "room_rotated",
     "room_closed",
+    "room_idle_timeout",
     "401",
     "403"
   ])("treats %s as a revoked session", (code) => {

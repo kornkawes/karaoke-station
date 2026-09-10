@@ -6,6 +6,8 @@ export const emptyPreviewRoom = {
   queue: [],
   stationName: "KaraokeStation",
   controllerCount: 0,
+  connectedControllerCount: 0,
+  idle: { phase: "active", warning: false, idleSinceAt: null, warningAt: null, closesAt: null },
   settings: { fairQueue: false },
   playback: { playing: true, volume: 75, muted: false }
 };
@@ -18,9 +20,15 @@ export function viewToPreviewRoom(view, previous = emptyPreviewRoom) {
     current: normalized.current,
     queue: normalized.items,
     stationName: view?.stationName || previous.stationName || "KaraokeStation",
-    controllerCount: Number.isFinite(Number(view?.controllerCount))
-      ? Number(view.controllerCount)
-      : Number(previous.controllerCount || 0),
+    controllerCount: Number.isFinite(Number(view?.connectedControllerCount))
+      ? Number(view.connectedControllerCount)
+      : Number.isFinite(Number(view?.controllerCount))
+        ? Number(view.controllerCount)
+        : Number(previous.controllerCount || 0),
+    connectedControllerCount: Number.isFinite(Number(view?.connectedControllerCount))
+      ? Number(view.connectedControllerCount)
+      : Number(previous.connectedControllerCount || previous.controllerCount || 0),
+    idle: view?.idle ?? previous.idle ?? emptyPreviewRoom.idle,
     settings: view?.settings ?? previous.settings ?? { fairQueue: false },
     playback: view?.playback ?? previous.playback ?? { playing: true, volume: 75, muted: false }
   };

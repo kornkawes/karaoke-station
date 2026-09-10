@@ -29,7 +29,7 @@ import {
 } from "../lib/schemas.js";
 import { parseYouTubeInput, YouTubeService } from "../lib/youtube.js";
 import { defaultFetch } from "../lib/compat.js";
-import { MemoryRoomStore } from "./rooms.js";
+import { MemoryRoomStore, roomIdleView } from "./rooms.js";
 import {
   requireController,
   requireHost,
@@ -55,7 +55,7 @@ function data(response, value, status = 200) {
 }
 
 /** Everything a controller or display is allowed to see about a room. */
-export function roomView(room) {
+export function roomView(room, currentTime = Date.now()) {
   return {
     roomId: room.roomId,
     revision: room.state.revision,
@@ -68,18 +68,26 @@ export function roomView(room) {
     },
     current: publicTrack(room.state.current),
     queue: room.state.queue.map(publicTrack),
-    expiresAt: new Date(room.expiresAt).toISOString()
+    expiresAt: new Date(room.expiresAt).toISOString(),
+    // This is a count of live controller sockets, not merely controller
+    // credentials that have not reached their longer TTL yet. It lets the
+    // Host distinguish a real connected room from stale browser sessions.
+    connectedControllerCount: Number(room.connectedControllerCount) || 0,
+    idle: roomIdleView(room, currentTime)
   };
 }
 
 /** Adds host-only fields on top of the shared view. */
-function hostRoomView(room, { joinPath }) {
+function hostRoomView(room, { joinPath, currentTime = Date.now() }) {
   return {
-    ...roomView(room),
+    ...roomView(room, currentTime),
     settings: room.state.settings,
     history: room.state.history,
     lyrics: room.state.lyrics,
+    // Keep the old registered count for API compatibility while exposing the
+    // live count that drives presentation and idle expiry.
     controllerCount: room.controllers.size,
+    connectedControllerCount: Number(room.connectedControllerCount) || 0,
     joinPath
   };
 }
@@ -264,8 +272,10 @@ export async function createHostedApplication({
     }
   }
 
+  const liveRoomView = (room) => roomView(room, now());
+
   function emitRoom(room, eventName = "room:changed") {
-    events.emit(eventName, { roomId: room.roomId, view: roomView(room) });
+    events.emit(eventName, { roomId: room.roomId, view: liveRoomView(room) });
   }
 
   function emitAction(room, { actor, action, track }) {
@@ -329,7 +339,10 @@ export async function createHostedApplication({
   });
 
   app.get("/api/v1/rooms/:roomId", hostAuth, (request, response) => {
-    data(response, hostRoomView(request.room, { joinPath: joinPathFor(request.room) }));
+    data(response, hostRoomView(request.room, {
+      joinPath: joinPathFor(request.room),
+      currentTime: now()
+    }));
   });
 
   app.delete("/api/v1/rooms/:roomId", hostAuth, (request, response) => {
@@ -406,7 +419,15 @@ export async function createHostedApplication({
       const room = store.require(roomId);
       const session = joinRoom(room, input, { now: now() });
       store.touch(roomId);
-      events.emit("room:presence", { roomId, controllerCount: room.controllers.size });
+      // Joining the room is meaningful activity. If the room was already in
+      // its warning window, a new participant gets a fresh chance to choose a
+      // song before the idle countdown starts again.
+      store.recordActivity(roomId, now());
+      events.emit("room:presence", {
+        roomId,
+        controllerCount: room.controllers.size,
+        connectedControllerCount: Number(room.connectedControllerCount) || 0
+      });
       data(response, { ...session, searchConfigured: Boolean(apiKey) }, 201);
     } catch (error) {
       next(error);
@@ -419,7 +440,7 @@ export async function createHostedApplication({
     "/api/v1/rooms/:roomId/queue",
     memberAuth,
     (request, response) => {
-      data(response, roomView(request.room));
+      data(response, liveRoomView(request.room));
     }
   );
 
@@ -436,6 +457,7 @@ export async function createHostedApplication({
         mode: request.query.mode ?? "both",
         maxResults: request.query.limit ?? 15
       });
+      store.recordActivity(request.room.roomId, now());
       data(response, result);
     })
   );
@@ -467,6 +489,7 @@ export async function createHostedApplication({
     asyncRoute(async (request, response) => {
       const input = request.body?.input;
       const track = await youtube.resolveVideo({ input });
+      store.recordActivity(request.room.roomId, now());
       data(response, track);
     })
   );
@@ -831,6 +854,6 @@ export async function createHostedApplication({
     services: { youtube, lyrics },
     searchConfigured: Boolean(apiKey),
     allowedOrigins,
-    roomView
+    roomView: liveRoomView
   };
 }

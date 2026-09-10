@@ -206,7 +206,7 @@ export function sessionJoinUrlFor(session, origin = window.location.origin) {
 }
 
 export function isSessionRevokedError(codeOrMessage = "") {
-  return /401|403|host_token_invalid|controller_session_expired|controller_auth_required|host_auth_required|room_not_found|room_rotated|room_closed|session:expired/i
+  return /401|403|host_token_invalid|controller_session_expired|controller_auth_required|host_auth_required|room_not_found|room_rotated|room_closed|room_idle_timeout|session:expired/i
     .test(String(codeOrMessage));
 }
 
@@ -230,11 +230,16 @@ export function connectRoom({ roomId, token }, onEvent) {
     socket.emit("room:sync");
   });
   socket.on("disconnect", (reason) => onEvent({ type: "connection", connected: false, error: reason }));
-  socket.on("connect_error", (error) => onEvent({
-    type: "connection",
-    connected: false,
-    error: error.data?.code || "socket_error"
-  }));
+  socket.on("connect_error", (error) => {
+    const code = error.data?.code || "socket_error";
+    onEvent({ type: "connection", connected: false, error: code });
+    // A tab can be offline while the server expires the room. On its next
+    // reconnect there is no room:revoked event to deliver, so promote the
+    // authenticated handshake error to the same revocation transition.
+    if (isSessionRevokedError(`${code} ${error.message || ""}`)) {
+      onEvent({ type: "revoked", code });
+    }
+  });
   socket.on("room:snapshot", (view) => onEvent({ type: "room", view }));
   socket.on("room:changed", (view) => onEvent({ type: "room", view }));
   socket.on("room:action", (action) => onEvent({ type: "action", action }));
@@ -243,7 +248,13 @@ export function connectRoom({ roomId, token }, onEvent) {
     // Older hosted servers only sent the total socket count. Keep that field
     // for compatibility and prefer the controller-only count when available.
     count: presence.count,
-    controllerCount: presence.controllerCount
+    controllerCount: presence.controllerCount,
+    connectedControllerCount: presence.connectedControllerCount
+  }));
+  socket.on("room:idle-warning", (payload) => onEvent({
+    type: "idle-warning",
+    closesAt: payload.closesAt,
+    warningAt: payload.warningAt
   }));
   socket.on("room:revoked", (payload) => onEvent({ type: "revoked", code: payload.code }));
   socket.on("session:expired", () => onEvent({ type: "revoked", code: "session_expired" }));

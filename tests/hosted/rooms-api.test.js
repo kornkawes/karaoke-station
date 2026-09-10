@@ -2,7 +2,11 @@ import path from "node:path";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHostedApplication, isAllowedOrigin, parseAllowedOrigins } from "../../server/hosted/app.js";
-import { MemoryRoomStore } from "../../server/hosted/rooms.js";
+import {
+  MemoryRoomStore,
+  ROOM_IDLE_CLOSE_MS,
+  ROOM_IDLE_WARNING_MS
+} from "../../server/hosted/rooms.js";
 
 const ORIGIN = "https://karaoke.example";
 
@@ -350,6 +354,118 @@ describe("room TTL", () => {
     expect(runtime.store.sweep()).toBe(1);
     expect(runtime.store.get(stale.roomId)).toBeUndefined();
     expect(runtime.store.get(fresh.roomId)).toBeDefined();
+  });
+});
+
+describe("connected-controller idle policy", () => {
+  it("warns after five minutes and expires ten minutes after the live controller arrives", () => {
+    const store = new MemoryRoomStore({ now: () => clock.value });
+    const room = store.create();
+
+    // A registered controller without a live socket must not start the idle clock.
+    expect(store.sweepIdle()).toEqual({ warnings: [], expired: [] });
+    store.setConnectedControllerCount(room.roomId, 1);
+
+    clock.value += ROOM_IDLE_WARNING_MS - 1;
+    expect(store.sweepIdle()).toEqual({ warnings: [], expired: [] });
+
+    clock.value += 1;
+    const warning = store.sweepIdle();
+    expect(warning.warnings).toHaveLength(1);
+    expect(warning.warnings[0]).toMatchObject({
+      roomId: room.roomId,
+      closesAt: clock.value + ROOM_IDLE_WARNING_MS
+    });
+
+    // The warning is emitted once, not on every one-second sweep.
+    expect(store.sweepIdle()).toEqual({ warnings: [], expired: [] });
+
+    clock.value += ROOM_IDLE_CLOSE_MS - ROOM_IDLE_WARNING_MS - 1;
+    expect(store.sweepIdle()).toEqual({ warnings: [], expired: [] });
+    clock.value += 1;
+    expect(store.sweepIdle().expired).toEqual([
+      expect.objectContaining({ roomId: room.roomId })
+    ]);
+    expect(store.get(room.roomId)).toBeUndefined();
+  });
+
+  it("keeps a room alive when another controller remains and resets the warning on activity", () => {
+    const store = new MemoryRoomStore({ now: () => clock.value });
+    const room = store.create();
+    store.setConnectedControllerCount(room.roomId, 2);
+
+    clock.value += ROOM_IDLE_WARNING_MS;
+    expect(store.sweepIdle().warnings).toHaveLength(1);
+
+    // One phone disconnects; the second live phone still keeps the room usable.
+    store.setConnectedControllerCount(room.roomId, 1);
+    expect(store.sweepIdle()).toEqual({ warnings: [], expired: [] });
+
+    // A meaningful mutation clears the warning and starts a fresh idle window
+    // only when the room is empty again.
+    store.recordActivity(room.roomId);
+    clock.value += ROOM_IDLE_WARNING_MS - 1;
+    expect(store.sweepIdle()).toEqual({ warnings: [], expired: [] });
+    clock.value += 1;
+    expect(store.sweepIdle().warnings).toHaveLength(1);
+  });
+
+  it("does not expire a connected room while it has a selected song", () => {
+    const store = new MemoryRoomStore({ now: () => clock.value });
+    const room = store.create();
+    store.setConnectedControllerCount(room.roomId, 1);
+    room.state.current = { id: "current", videoId: "dQw4w9WgXcQ", title: "เพลงที่กำลังเล่น" };
+
+    clock.value += ROOM_IDLE_CLOSE_MS * 2;
+    expect(store.sweepIdle()).toEqual({ warnings: [], expired: [] });
+    expect(store.get(room.roomId)).toBeDefined();
+  });
+
+  it("recovers from malformed idle timestamps instead of wedging the room", () => {
+    const store = new MemoryRoomStore({ now: () => clock.value });
+    const room = store.create();
+    store.setConnectedControllerCount(room.roomId, 1, "not-a-date");
+
+    clock.value += ROOM_IDLE_WARNING_MS;
+    expect(store.sweepIdle().warnings).toHaveLength(1);
+
+    const freshRoom = store.get(room.roomId);
+    freshRoom.idleSinceAt = "not-a-date";
+    freshRoom.idleWarningAt = null;
+    expect(store.sweepIdle()).toEqual({ warnings: [], expired: [] });
+    expect(Number.isFinite(Number(freshRoom.idleSinceAt))).toBe(true);
+  });
+
+  it("starts a fresh idle window after the last queued song is removed", async () => {
+    const store = new MemoryRoomStore({ now: () => clock.value });
+    const room = store.create();
+    store.setConnectedControllerCount(room.roomId, 1);
+    room.state.queue.push({ id: "queued", videoId: "dQw4w9WgXcQ", title: "เพลงในคิว" });
+
+    clock.value += ROOM_IDLE_CLOSE_MS * 2;
+    expect(store.sweepIdle()).toEqual({ warnings: [], expired: [] });
+
+    await store.mutate(room.roomId, (draft) => {
+      draft.queue = [];
+    });
+    clock.value += ROOM_IDLE_WARNING_MS - 1;
+    expect(store.sweepIdle()).toEqual({ warnings: [], expired: [] });
+    clock.value += 1;
+    expect(store.sweepIdle().warnings).toHaveLength(1);
+  });
+
+  it("exposes the warning countdown in the host room view", async () => {
+    const room = await createRoom();
+    runtime.store.setConnectedControllerCount(room.roomId, 1);
+    clock.value += ROOM_IDLE_WARNING_MS;
+    runtime.store.sweepIdle();
+
+    const response = await api("get", `/api/v1/rooms/${room.roomId}`)
+      .set("Authorization", `Bearer ${room.hostToken}`)
+      .expect(200);
+    expect(response.body.data.connectedControllerCount).toBe(1);
+    expect(response.body.data.idle).toMatchObject({ warning: true, phase: "warning" });
+    expect(response.body.data.idle.closesAt).toBe(new Date(clock.value + ROOM_IDLE_WARNING_MS).toISOString());
   });
 });
 

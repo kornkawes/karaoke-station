@@ -4,6 +4,13 @@ import { toBase64Url } from "../lib/compat.js";
 
 export const ROOM_TTL_MS = 10 * 60 * 60 * 1_000;
 export const CONTROLLER_TTL_MS = 12 * 60 * 60 * 1_000;
+// A room can stay available while somebody is connected, but an empty room
+// with connected controllers should not sit on a TV forever without a song.
+// The warning and close windows are deliberately short and exported so the
+// server timer and deterministic store tests share one contract.
+export const ROOM_IDLE_WARNING_MS = 5 * 60 * 1_000;
+export const ROOM_IDLE_CLOSE_MS = 10 * 60 * 1_000;
+const MAX_DATE_MS = 8.64e15;
 
 const ROOM_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -58,11 +65,69 @@ export function defaultRoomState() {
   };
 }
 
+function hasSelectedSong(room) {
+  return Boolean(room?.state?.current) || (room?.state?.queue?.length ?? 0) > 0;
+}
+
+function clearIdleMarkers(room) {
+  room.idleSinceAt = null;
+  room.idleWarningAt = null;
+}
+
+function safeTimestamp(value, fallback = Date.now()) {
+  const candidate = value instanceof Date ? value.getTime() : Number(value);
+  if (Number.isFinite(candidate) && candidate >= 0 && candidate <= MAX_DATE_MS) return candidate;
+  const backup = fallback instanceof Date ? fallback.getTime() : Number(fallback);
+  if (Number.isFinite(backup) && backup >= 0 && backup <= MAX_DATE_MS) return backup;
+  return Date.now();
+}
+
+function startIdleClock(room, at) {
+  if (room.idleSinceAt === null || room.idleSinceAt === undefined) room.idleSinceAt = safeTimestamp(at);
+  room.idleWarningAt = null;
+}
+
+/** Public, clock-derived idle state used by the Host to render a countdown. */
+export function roomIdleView(room, now = Date.now()) {
+  const connectedControllerCount = Number(room?.connectedControllerCount) || 0;
+  if (connectedControllerCount <= 0 || hasSelectedSong(room) || room?.idleSinceAt === null || room?.idleSinceAt === undefined) {
+    return {
+      phase: "active",
+      warning: false,
+      idleSinceAt: null,
+      warningAt: null,
+      closesAt: null
+    };
+  }
+
+  const idleSinceAt = Number(room.idleSinceAt);
+  if (!Number.isFinite(idleSinceAt) || idleSinceAt < 0 || idleSinceAt > MAX_DATE_MS - ROOM_IDLE_CLOSE_MS) {
+    return {
+      phase: "active",
+      warning: false,
+      idleSinceAt: null,
+      warningAt: null,
+      closesAt: null
+    };
+  }
+  const warningAt = idleSinceAt + ROOM_IDLE_WARNING_MS;
+  const closesAt = idleSinceAt + ROOM_IDLE_CLOSE_MS;
+  const warning = safeTimestamp(now) >= warningAt;
+  return {
+    phase: warning ? "warning" : "idle",
+    warning,
+    idleSinceAt: new Date(idleSinceAt).toISOString(),
+    warningAt: new Date(warningAt).toISOString(),
+    closesAt: new Date(closesAt).toISOString()
+  };
+}
+
 /**
  * In-memory room store.
  *
  * Deliberately kept behind this narrow surface (`create`, `get`, `mutate`, `close`,
- * `touch`, `sweep`) so a Redis/durable implementation can replace it without the
+ * `touch`, `setConnectedControllerCount`, `recordActivity`, `sweep`, `sweepIdle`) so
+ * a Redis/durable implementation can replace it without the
  * routes changing. See docs/adr/0001-hosted-platform.md.
  *
  * `mutate` serializes per room: a room's mutations form a chain, so revision checks
@@ -92,6 +157,10 @@ export class MemoryRoomStore {
       createdAt,
       expiresAt: createdAt + this.roomTtlMs,
       lastSeenAt: createdAt,
+      lastActivityAt: createdAt,
+      connectedControllerCount: 0,
+      idleSinceAt: null,
+      idleWarningAt: null,
       controllers: new Map(),
       state: defaultRoomState()
     };
@@ -128,6 +197,86 @@ export class MemoryRoomStore {
     return room;
   }
 
+  /** Records a live controller socket count without extending controller TTLs. */
+  setConnectedControllerCount(roomId, count, at = this.now()) {
+    const room = this.get(roomId);
+    if (!room) return undefined;
+    const numeric = Number(count);
+    const next = Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : 0;
+    const timestamp = safeTimestamp(at, this.now());
+    const previous = Number(room.connectedControllerCount) || 0;
+    room.connectedControllerCount = next;
+    if (next <= 0 || hasSelectedSong(room)) {
+      clearIdleMarkers(room);
+    } else if (previous <= 0) {
+      // Start the idle window when the first live controller arrives, rather
+      // than counting time spent showing the QR before anyone joined.
+      room.idleSinceAt = timestamp;
+      room.idleWarningAt = null;
+    } else if (room.idleSinceAt === null || room.idleSinceAt === undefined) {
+      startIdleClock(room, timestamp);
+    }
+    return room;
+  }
+
+  /** Marks a successful room interaction as meaningful activity. */
+  recordActivity(roomId, at = this.now()) {
+    const room = this.get(roomId);
+    if (!room) return undefined;
+    const timestamp = safeTimestamp(at, this.now());
+    room.lastActivityAt = timestamp;
+    if ((Number(room.connectedControllerCount) || 0) > 0 && !hasSelectedSong(room)) {
+      room.idleSinceAt = timestamp;
+      room.idleWarningAt = null;
+    } else {
+      clearIdleMarkers(room);
+    }
+    return room;
+  }
+
+  /**
+   * Evaluates the controller-idle policy. The caller emits the returned events
+   * so the store stays transport-agnostic and remains easy to replace.
+   */
+  sweepIdle(at = this.now()) {
+    const timestamp = safeTimestamp(at, this.now());
+    const warnings = [];
+    const expired = [];
+    for (const [roomId, room] of this.rooms) {
+      const connected = Number(room.connectedControllerCount) || 0;
+      if (connected <= 0 || hasSelectedSong(room)) {
+        clearIdleMarkers(room);
+        continue;
+      }
+      if (room.idleSinceAt === null || room.idleSinceAt === undefined) startIdleClock(room, timestamp);
+      const idleSinceAt = Number(room.idleSinceAt);
+      if (!Number.isFinite(idleSinceAt) || idleSinceAt < 0 || idleSinceAt > MAX_DATE_MS - ROOM_IDLE_CLOSE_MS) {
+        // A malformed persisted marker must never wedge the room in an
+        // unobservable idle state. Restart the clock from the validated sweep
+        // timestamp and let a later sweep evaluate it normally.
+        room.idleSinceAt = timestamp;
+        room.idleWarningAt = null;
+        continue;
+      }
+      const closesAt = idleSinceAt + ROOM_IDLE_CLOSE_MS;
+      if (timestamp >= closesAt) {
+        this.#drop(roomId);
+        expired.push({ roomId, idleSinceAt, closesAt });
+        continue;
+      }
+      if (timestamp >= idleSinceAt + ROOM_IDLE_WARNING_MS && !room.idleWarningAt) {
+        room.idleWarningAt = timestamp;
+        warnings.push({
+          roomId,
+          idleSinceAt,
+          closesAt,
+          warningAt: idleSinceAt + ROOM_IDLE_WARNING_MS
+        });
+      }
+    }
+    return { warnings, expired };
+  }
+
   /**
    * Serialized read-modify-write for one room. The mutator receives a draft of the
    * room state; returning normally commits it and bumps `revision`.
@@ -145,6 +294,7 @@ export class MemoryRoomStore {
     const result = await mutator(draft);
     draft.revision += 1;
     this.touch(roomId);
+    this.recordActivity(roomId, this.now());
     return { state: draft, result, room };
   }
 
@@ -164,6 +314,8 @@ export class MemoryRoomStore {
     room.hostToken = generateToken();
     room.joinToken = generateToken();
     room.controllers.clear();
+    room.connectedControllerCount = 0;
+    clearIdleMarkers(room);
     this.touch(roomId);
     return room;
   }

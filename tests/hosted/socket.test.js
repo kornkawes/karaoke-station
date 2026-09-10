@@ -36,13 +36,14 @@ async function waitForHealth(url) {
 }
 
 async function api(method, routePath, { token, body } = {}) {
+  const hasBody = !["GET", "HEAD"].includes(method);
   const response = await fetch(`${baseUrl}${routePath}`, {
     method,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {})
     },
-    body: body === undefined ? JSON.stringify({}) : JSON.stringify(body)
+    body: hasBody ? (body === undefined ? JSON.stringify({}) : JSON.stringify(body)) : undefined
   });
   const payload = await response.json();
   return { status: response.status, ...payload };
@@ -254,6 +255,59 @@ describe("realtime room events", () => {
 
     expect(presenceEvents.some((payload) => payload.controllerCount === 1)).toBe(true);
     hostSocket.close();
+  });
+
+  it("tracks live controller sockets separately from registered controller sessions", async () => {
+    const room = await createRoom();
+    const hostSocket = await connectResult({ roomId: room.roomId, token: room.hostToken });
+    const controllerA = await joinRoom(room, "live phone A");
+    const controllerB = await joinRoom(room, "live phone B");
+    const phoneSocketA = await connectResult({ roomId: room.roomId, token: controllerA.token });
+    const phoneSocketB = await connectResult({ roomId: room.roomId, token: controllerB.token });
+    const presenceEvents = [];
+    hostSocket.on("room:presence", (payload) => presenceEvents.push(payload));
+
+    for (let attempt = 0; attempt < 20 && !presenceEvents.some((payload) => payload.connectedControllerCount === 2); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(presenceEvents.some((payload) => payload.controllerCount === 2)).toBe(true);
+    expect(presenceEvents.some((payload) => payload.connectedControllerCount === 2)).toBe(true);
+
+    phoneSocketA.close();
+    for (let attempt = 0; attempt < 20 && !presenceEvents.some((payload) => payload.connectedControllerCount === 1); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(presenceEvents.some((payload) => payload.connectedControllerCount === 1)).toBe(true);
+    // The remaining phone can still use the room after the first phone leaves.
+    const added = await api("POST", `/api/v1/rooms/${room.roomId}/queue`, {
+      token: controllerB.token,
+      body: { track: { videoId: "dQw4w9WgXcQ", title: "เพลงจากโทรศัพท์ที่สอง" } }
+    });
+    expect(added.status).toBe(201);
+
+    phoneSocketB.close();
+    for (let attempt = 0; attempt < 20 && !presenceEvents.some((payload) => payload.connectedControllerCount === 0); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(presenceEvents.some((payload) => payload.connectedControllerCount === 0)).toBe(true);
+    // The credential remains registered until its normal TTL, but no live
+    // controller is counted after the socket disconnects.
+    const hostView = await api("GET", `/api/v1/rooms/${room.roomId}`, { token: room.hostToken });
+    expect(hostView.status).toBe(200);
+    expect(hostView.data.controllerCount).toBe(2);
+    expect(hostView.data.connectedControllerCount).toBe(0);
+
+    hostSocket.close();
+  });
+
+  it("rejects a stale reconnect after an idle or manual room close", async () => {
+    const room = await createRoom();
+    const closed = await api("DELETE", `/api/v1/rooms/${room.roomId}`, { token: room.hostToken });
+    expect(closed.status).toBe(200);
+
+    await expect(
+      connectResult({ roomId: room.roomId, token: room.hostToken })
+    ).rejects.toMatchObject({ code: "room_not_found" });
   });
 
   it("broadcasts a queue change to every member of the room only", async () => {
