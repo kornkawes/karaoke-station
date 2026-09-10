@@ -54,10 +54,17 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(phone.locator(".sheet-root .remote-sheet")).toBeVisible();
   await phone.getByLabel("ชื่อของคุณ").fill("มือถือ Preview");
   await phone.getByRole("button", { name: "เข้าร่วมห้องจริง" }).click();
-  await expect(phone.locator(".phone-header .wordmark")).toContainText("KARAOKE STATION");
+  await expect(phone.locator(".phone-header .wordmark")).toContainText("KAVAOKE");
+  await expect(phone.locator(".phone-header .wordmark i")).toHaveText("STATION");
   await expect(phone.locator(".phone-header .room-icon")).toHaveCount(1);
   await expect(phone.locator(".phone-header .room-icon")).toHaveCSS("width", "14px");
   await expect(phone.locator(".search-box input")).toBeEnabled();
+  await expect(phone.locator(".mobile-hero")).toHaveCount(0);
+  await expect(phone.locator(".mobile-tip")).toContainText("Tips");
+  const searchContentOrder = await phone.locator(".phone-content").evaluate((content) => [...content.querySelectorAll(":scope > *")].map((node) => node.className));
+  expect(searchContentOrder.indexOf("mobile-tip")).toBeGreaterThan(searchContentOrder.indexOf("chips"));
+  await expect(phone.locator(".search-example")).toBeVisible();
+  await expect(phone.locator(".search-box").locator("button svg")).toBeVisible();
   await expect(phone.locator(".sheet-root .remote-sheet")).toHaveCount(0);
   await expect(phone.locator(".bottom-nav")).toBeVisible();
 
@@ -67,6 +74,21 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(page.locator(".invite-gate")).toHaveCount(0);
   await expect(page.locator(".real-qr")).toHaveCount(0);
   await expect(page.locator(".system-track-bar")).toBeVisible();
+
+  for (const viewport of [
+    { width: 700, height: 520 },
+    { width: 520, height: 700 },
+    { width: 390, height: 844 }
+  ]) {
+    await page.setViewportSize(viewport);
+    const readyAlignment = await page.evaluate(() => {
+      const live = document.querySelector(".system-track-status").getBoundingClientRect();
+      const fullscreen = document.querySelector(".display-controls .fullscreen-control").getBoundingClientRect();
+      return { liveCenter: live.top + live.height / 2, fullscreenCenter: fullscreen.top + fullscreen.height / 2 };
+    });
+    expect(Math.abs(readyAlignment.fullscreenCenter - readyAlignment.liveCenter), `${viewport.width}px ready fullscreen alignment`).toBeLessThanOrEqual(1);
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
 
   // The presentation latch survives a Host refresh while the controller socket
   // is reconnecting.
@@ -121,6 +143,32 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(page.locator(".system-track-status i")).toHaveCSS("animation-name", "live-status-breathe");
   await expect(page.locator(".system-track-status i")).toHaveCSS("animation-duration", "2.2s");
   await expect(page.locator(".system-track-bar")).toHaveCSS("backdrop-filter", /blur\(30px\)/);
+  const fullscreenAlignment = await page.evaluate(() => {
+    const bar = document.querySelector(".system-track-bar").getBoundingClientRect();
+    const live = document.querySelector(".system-track-status").getBoundingClientRect();
+    const fullscreen = document.querySelector(".display-controls .fullscreen-control").getBoundingClientRect();
+    return {
+      barCenter: bar.top + bar.height / 2,
+      liveCenter: live.top + live.height / 2,
+      fullscreenCenter: fullscreen.top + fullscreen.height / 2
+    };
+  });
+  expect(Math.abs(fullscreenAlignment.fullscreenCenter - fullscreenAlignment.liveCenter)).toBeLessThanOrEqual(1);
+  expect(Math.abs(fullscreenAlignment.fullscreenCenter - fullscreenAlignment.barCenter)).toBeLessThanOrEqual(1);
+  for (const viewport of [
+    { width: 700, height: 520 },
+    { width: 520, height: 700 },
+    { width: 390, height: 844 }
+  ]) {
+    await page.setViewportSize(viewport);
+    const responsiveAlignment = await page.evaluate(() => {
+      const live = document.querySelector(".system-track-status").getBoundingClientRect();
+      const fullscreen = document.querySelector(".display-controls .fullscreen-control").getBoundingClientRect();
+      return { liveCenter: live.top + live.height / 2, fullscreenCenter: fullscreen.top + fullscreen.height / 2 };
+    });
+    expect(Math.abs(responsiveAlignment.fullscreenCenter - responsiveAlignment.liveCenter), `${viewport.width}px playing fullscreen alignment`).toBeLessThanOrEqual(1);
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
   const hostHud = await page.evaluate(() => {
     const next = document.querySelector(".up-next-chip").getBoundingClientRect();
     const meta = document.querySelector(".system-track-bar").getBoundingClientRect();
@@ -134,12 +182,22 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(phone.locator(".remote-primary")).toBeVisible();
   await expect(phone.locator(".remote-primary").getByRole("button", { name: "พักเพลง" })).toBeVisible();
   await expect(phone.locator(".remote-primary").getByRole("button", { name: "ข้ามเพลง" })).toBeVisible();
-  await expect(phone.locator(".remote-primary").getByRole("button", { name: "จบเพลง" })).toBeVisible();
-  await phone.locator(".remote-primary").getByRole("button", { name: "จบเพลง" }).click();
+  const remoteColumns = await phone.locator(".remote-primary").evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(" ").filter(Boolean));
+  expect(remoteColumns).toHaveLength(2);
+  expect(Math.abs(Number.parseFloat(remoteColumns[0]) - Number.parseFloat(remoteColumns[1]))).toBeLessThanOrEqual(1);
+  await expect(phone.locator(".remote-primary").getByRole("button", { name: "จบเพลง" })).toHaveCount(0);
+  await expect(phone.locator(".remote-sheet")).not.toContainText(host.roomId);
+  await expect(phone.locator(".remote-sheet .sheet-note")).toHaveCount(0);
+  await phone.locator(".remote-primary").getByRole("button", { name: "ข้ามเพลง" }).click();
   await expect(phone.locator(".now-dock")).toContainText("เพลงถัดไป Preview");
-  await phone.locator(".sheet-close").click();
+  await expect(phone.locator(".now-dock")).toContainText("Now playing");
+  await phone.locator(".bottom-nav button").nth(2).click();
+  await expect(phone.locator(".history-title")).toBeVisible();
+  await expect(phone.locator(".history-list")).toContainText("เพลงหน้าตา Preview");
   await phone.getByRole("button", { name: /^คิว/ }).click();
   await expect(phone.locator(".queue-title")).toContainText("คิวของเรา");
+  await expect(phone.locator(".queue-title .eyebrow")).toHaveCount(0);
+  await expect(phone.locator(".queue-toolbar")).toHaveCount(0);
   await expect(phone.locator(".fair-toggle")).toBeVisible();
   await expect(phone.locator(".now-dock")).toContainText("เพลงถัดไป Preview");
   await expect(phone.locator(".bottom-nav")).toBeVisible();
@@ -173,6 +231,22 @@ test("mobile notices stay compact above sheets without horizontal overlap", asyn
 
   await phone.getByRole("button", { name: /^คิว/ }).click();
   await expect(phone.locator(".queue-item")).toHaveCount(1);
+  await expect(phone.locator(".queue-toolbar")).toHaveCount(0);
+  await expect(phone.locator(".queue-drag-handle")).toHaveCount(1);
+  const queueCoverSize = await phone.locator(".queue-item .real-cover").evaluate((node) => node.getBoundingClientRect().width);
+  expect(queueCoverSize).toBeGreaterThanOrEqual(56);
+  await expect(phone.locator(".queue-title-marquee")).toBeVisible();
+  const queueGeometry = await phone.evaluate(() => [...document.querySelectorAll(".queue-item")].map((row) => {
+    const cover = row.querySelector(".real-cover").getBoundingClientRect();
+    const content = row.querySelector(":scope > div:last-child").getBoundingClientRect();
+    const controls = row.querySelector(".queue-controls").getBoundingClientRect();
+    return { coverRight: cover.right, contentLeft: content.left, controlsRight: controls.right, rowRight: row.getBoundingClientRect().right };
+  }));
+  expect(queueGeometry.length).toBeGreaterThan(0);
+  for (const metrics of queueGeometry) {
+    expect(metrics.coverRight).toBeLessThanOrEqual(metrics.contentLeft + 1);
+    expect(metrics.controlsRight).toBeLessThanOrEqual(metrics.rowRight + 1);
+  }
   await phone.getByRole("button", { name: "ลบเพลง" }).click();
   await expect(phone.locator(".toast.show")).toBeVisible();
   const metrics = await phone.evaluate(() => {
@@ -183,12 +257,15 @@ test("mobile notices stay compact above sheets without horizontal overlap", asyn
       width: toast.width,
       height: toast.height,
       zIndex: Number(style.zIndex),
+      centerDelta: Math.abs((toast.left + toast.width / 2) - window.innerWidth / 2),
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
     };
   });
+  expect(metrics.top).toBeGreaterThanOrEqual(80);
   expect(metrics.top).toBeLessThan(90);
   expect(metrics.width).toBeLessThanOrEqual(296);
   expect(metrics.height).toBeLessThanOrEqual(64);
+  expect(metrics.centerDelta).toBeLessThanOrEqual(1);
   expect(metrics.zIndex).toBeGreaterThan(52);
   expect(metrics.overflow).toBeLessThanOrEqual(1);
 
@@ -219,6 +296,12 @@ test("mobile shell keeps header, scroll area, dock and nav in separate layers", 
   await phone.getByLabel("ชื่อของคุณ").fill("มือถือ Layout");
   await phone.getByRole("button", { name: "เข้าร่วมห้องจริง" }).click();
   await expect(phone.locator(".search-box input")).toBeEnabled();
+  await phone.getByRole("button", { name: "ประวัติ" }).click();
+  await expect(phone.locator(".history-title")).toBeVisible();
+  await expect(phone.locator(".history-example")).toBeVisible();
+  await expect(phone.locator(".history-title .room-icon")).toHaveCount(0);
+  await expect(phone.locator(".phone-header .wordmark")).toContainText("KAVAOKE");
+  await phone.locator(".bottom-nav button").first().click();
 
   for (const viewport of [
     { width: 320, height: 568 },

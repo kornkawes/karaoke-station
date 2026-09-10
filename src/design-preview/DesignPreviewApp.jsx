@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors } from "@dnd-kit/core";
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
-  Check,
   Copy,
   DoorOpen,
+  GripVertical,
   History,
   ListMusic,
   LoaderCircle,
@@ -422,7 +425,7 @@ function PreviewDisplayView() {
     <main className={`host-display-page preview-functional-host ${isPresenting ? "is-presenting" : "is-invite"}`}>
       <section
         ref={stageRef}
-        className={`display-stage ${isPresenting ? "is-presenting" : "is-invite"}`}
+        className={`display-stage ${isPresenting ? "is-presenting" : "is-invite"} ${room.current ? "has-current" : "is-ready"}`}
         data-display-mode={isPresenting ? "presentation" : "invite"}
         aria-label={room.current ? `จอเพลงจริง · ${room.current.title}` : "จอเพลงจริง · รอเพลงแรก"}
       >
@@ -522,14 +525,13 @@ function PreviewJoinView({ roomId, joinToken, onJoin }) {
       <div className="desktop-context"><a href="/">← กลับหน้าจอแสดงผล</a><p>LIVE MOBILE REMOTE<br />SCAN QR FROM HOST</p></div>
       <section className="phone join-phone" aria-label="เข้าห้อง Karaoke Station" inert>
         <header className="phone-header">
-          <div><a className="wordmark" href="/">KARAOKE STATION <i>AFTER HOURS</i></a><p><span className="status-dot" /><RoomIcon size={12} /> {roomId || "—"} · LIVE</p></div>
+          <div><a className="wordmark" href="/"><strong>KAVAOKE</strong> <i>STATION</i></a><p><span className="status-dot" /><RoomIcon size={12} /> {roomId || "—"} · LIVE</p></div>
           <div className="header-actions">
             <button type="button" className="share-button svg-button" onClick={shareInvite} disabled={!inviteUrl} aria-label="เปิดคำเชิญห้อง"><Share2 size={16} /><span>แชร์</span></button>
             <button type="button" className="settings-button svg-button" disabled aria-label="ตั้งค่าห้อง"><Settings size={18} /></button>
           </div>
         </header>
         <section className="phone-content" aria-live="polite">
-          <section className="mobile-hero"><p className="eyebrow">KARAOKE STATION <span className="preview-label room-label"><RoomIcon size={12} /> LIVE</span></p><h1>คืนนี้<br /><em>ร้องเพลงไหนดี?</em></h1></section>
           <form className="search-box" onSubmit={(event) => event.preventDefault()}>
             <input aria-label="ค้นหาชื่อเพลง ศิลปิน หรือลิงก์ YouTube" disabled placeholder="ชื่อเพลง, ศิลปิน หรือ YouTube URL" />
             <button type="submit" aria-label="ค้นหา" disabled><Search size={20} /></button>
@@ -567,7 +569,6 @@ function PreviewJoinView({ roomId, joinToken, onJoin }) {
           ) : (
             <div className="empty-state"><b>ต้องสแกน QR จากจอ Host</b><span>ลิงก์นี้ไม่มีข้อมูลเข้าห้องที่ปลอดภัย</span></div>
           )}
-          <p className="sheet-note">ใส่ชื่อเพื่อเข้าร่วมห้องจริงและเลือกเพลงจากมือถือ</p>
         </section>
       </div>
     </main>
@@ -594,6 +595,88 @@ function SongRow({ track, favorite, onFavorite, onAdd }) {
   );
 }
 
+function SearchResultExample() {
+  return (
+    <section className="search-example" aria-label="ตัวอย่างผลการค้นหา">
+      <div className="search-example-heading"><strong>ตัวอย่างผลการค้นหา</strong><span>ไอคอนรายการเพลง</span></div>
+      <div className="song-row search-example-row">
+        <Cover track={null} className="sample-cover sample-cover-sky" />
+        <div className="song-info">
+          <strong>เพลงตัวอย่างจาก KAVAOKE</strong>
+          <small>KAVAOKE Channel</small>
+          <span>3:42 · ตัวอย่างไอคอน</span>
+        </div>
+        <div className="song-actions">
+          <button type="button" className="favorite" disabled aria-label="บันทึกเพลงโปรด"><Star size={19} /></button>
+          <button type="button" className="add-button" disabled aria-label="เพิ่มเพลงตัวอย่าง"><Plus size={20} /></button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function HistoryExample() {
+  const examples = [
+    { title: "เพลงตัวอย่างที่ร้องจบ", channelTitle: "KAVAOKE Originals", status: "ร้องจบแล้ว", cover: "sample-cover-sunset" },
+    { title: "คืนที่ดาวเต็มฟ้า", channelTitle: "KAVAOKE Live", status: "ข้ามแล้ว", cover: "sample-cover-night" }
+  ];
+  return (
+    <section className="history-example" aria-label="ตัวอย่างประวัติการร้อง">
+      <div className="history-example-heading"><strong>ตัวอย่างประวัติ</strong><span>รายการที่เคยร้อง</span></div>
+      {examples.map((track) => (
+        <article className="history-row history-row-example" key={track.title}>
+          <Cover track={null} className={`sample-cover ${track.cover}`} />
+          <div><strong>{track.title}</strong><small>{track.channelTitle} · {track.status}</small></div>
+          <button type="button" className="readd" disabled aria-label={`ร้องอีก ${track.title}`}><Plus size={14} /> ร้องอีก</button>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function SortableQueueItem({ track, index, busy, onPlayNow, onRemove }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: track.queueId,
+    disabled: Boolean(busy)
+  });
+  const isLongTitle = String(track.title || "").length > 18;
+  return (
+    <article
+      ref={setNodeRef}
+      className={`queue-item ${isDragging ? "is-dragging" : ""}`.trim()}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+    >
+      <div className="queue-order">
+        <button
+          type="button"
+          className="queue-drag-handle"
+          aria-label={`กดค้างแล้วลากเพื่อย้าย ${track.title}`}
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical size={16} aria-hidden="true" />
+        </button>
+        <span className="queue-pos">{String(index + 1).padStart(2, "0")}</span>
+      </div>
+      <Cover track={track} />
+      <div>
+        <strong className={`queue-title-marquee ${isLongTitle ? "is-long" : ""}`.trim()} title={track.title}>
+          <span className="queue-title-track"><span>{track.title}</span>{isLongTitle && <span aria-hidden="true"> · {track.title}</span>}</span>
+        </strong>
+        <small>{track.channelTitle || "YouTube"} · ขอโดย {track.requestedBy || "สมาชิก"}</small>
+        <div className="queue-controls">
+          <button type="button" className="play-now" onClick={() => onPlayNow(track)} disabled={Boolean(busy)}>
+            <Play size={13} /> เล่นทันที
+          </button>
+          <button type="button" className="remove" onClick={() => onRemove(track)} disabled={Boolean(busy)} aria-label="ลบเพลง">
+            <Trash2 size={15} />
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function PreviewController({ session, onRevoked }) {
   const [tab, setTab] = useState("search");
   const [filter, setFilter] = useState("all");
@@ -604,13 +687,17 @@ function PreviewController({ session, onRevoked }) {
   const [phase, setPhase] = useState("idle");
   const [favorites, setFavorites] = useState(readFavorites);
   const [history, setHistory] = useState([]);
-  const [reorderMode, setReorderMode] = useState(false);
   const [sheet, setSheet] = useState(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
   const [fairSaving, setFairSaving] = useState(false);
   const [playbackSaving, setPlaybackSaving] = useState(false);
   const [volumeDraft, setVolumeDraft] = useState(null);
+  const queueSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 260, tolerance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
   const playbackPending = useRef(null);
   const playbackMutating = useRef(false);
   const volumeTimer = useRef(null);
@@ -720,17 +807,25 @@ function PreviewController({ session, onRevoked }) {
     }
   };
 
-  const move = async (track, index, direction) => {
-    const toIndex = index + direction;
+  const reorder = async (track, toIndex) => {
     if (toIndex < 0 || toIndex >= room.queue.length || busy) return;
     setBusy(`move:${track.queueId}`);
     try {
       await guard(() => hostedApi.reorder(session.roomId, session.token, track.queueId, toIndex, room.revision));
+      setNotice("เปลี่ยนลำดับคิวแล้ว");
     } catch (requestError) {
       setNotice(requestError.message || "ย้ายคิวไม่สำเร็จ");
     } finally {
       setBusy("");
     }
+  };
+
+  const queueDragEnd = ({ active, over }) => {
+    if (!over || active.id === over.id || busy) return;
+    const fromIndex = room.queue.findIndex((item) => item.queueId === active.id);
+    const toIndex = room.queue.findIndex((item) => item.queueId === over.id);
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
+    void reorder(room.queue[fromIndex], toIndex);
   };
 
   const skip = async () => {
@@ -742,52 +837,6 @@ function PreviewController({ session, onRevoked }) {
       setSheet(null);
     } catch (requestError) {
       setNotice(requestError.message || "ข้ามเพลงไม่สำเร็จ");
-    } finally {
-      setBusy("");
-    }
-  };
-
-  const complete = async () => {
-    if (!room.current || busy) return;
-    const targetQueueId = room.current.queueId;
-    setBusy("complete");
-    try {
-      // Synchronize before the mutation so a delayed initial snapshot cannot leave
-      // the controller holding an obsolete revision.
-      const latest = await guard(() => hostedApi.queue(session.roomId, session.token));
-      const latestRoom = applyPreviewRoomView(latest, room);
-      setRoom(latestRoom);
-      if (!latestRoom.current || latestRoom.current.queueId !== targetQueueId) {
-        setNotice("คิวเปลี่ยนไปแล้ว กรุณาลองใหม่");
-        return;
-      }
-
-      let result;
-      try {
-        result = await guard(() => hostedApi.complete(session.roomId, session.token, latestRoom.revision));
-      } catch (requestError) {
-        if (requestError.status !== 409) throw requestError;
-
-        // A second client can still win the small gap between the refresh and the
-        // mutation. Retry only if the same song remains current after refreshing.
-        const retryView = await guard(() => hostedApi.queue(session.roomId, session.token));
-        const retryRoom = applyPreviewRoomView(retryView, latestRoom);
-        setRoom(retryRoom);
-        if (!retryRoom.current || retryRoom.current.queueId !== targetQueueId) {
-          throw requestError;
-        }
-        result = await guard(() => hostedApi.complete(session.roomId, session.token, retryRoom.revision));
-      }
-      if (result?.queue) {
-        setRoom((previous) => applyPreviewRoomView(result.queue, previous));
-      }
-      // Read back the full authoritative room, including playback reset, rather
-      // than waiting for a socket event to arrive in the browser.
-      const authoritative = await guard(() => hostedApi.queue(session.roomId, session.token));
-      setRoom((previous) => applyPreviewRoomView(authoritative, previous));
-      setNotice("จบเพลงแล้ว");
-    } catch (requestError) {
-      setNotice(requestError.message || "จบเพลงไม่สำเร็จ");
     } finally {
       setBusy("");
     }
@@ -861,7 +910,7 @@ function PreviewController({ session, onRevoked }) {
       <section className="phone" aria-label="Karaoke Station mobile remote" inert={Boolean(sheet)}>
         <header className="phone-header">
           <div>
-            <a className="wordmark" href="/">KARAOKE STATION <i>AFTER HOURS</i></a>
+            <a className="wordmark" href="/"><strong>KAVAOKE</strong> <i>STATION</i></a>
             <p><span className={`status-dot ${connected ? "is-online" : ""}`} /><RoomIcon size={12} /> {session.roomId} · {connected ? "เชื่อมต่อแล้ว" : "กำลังเชื่อมต่อ"}</p>
           </div>
           <div className="header-actions">
@@ -873,7 +922,6 @@ function PreviewController({ session, onRevoked }) {
         <section className="phone-content" aria-live="polite">
           {tab === "search" && (
             <>
-              <section className="mobile-hero"><p className="eyebrow">KARAOKE STATION <span className="preview-label room-label"><RoomIcon size={12} /> LIVE</span></p><h1>คืนนี้<br /><em>ร้องเพลงไหนดี?</em></h1></section>
               <form className="search-box" onSubmit={doSearch}>
                 <input aria-label="ค้นหาชื่อเพลง ศิลปิน หรือลิงก์ YouTube" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ชื่อเพลง, ศิลปิน หรือ YouTube URL" autoComplete="off" />
                 <button type="submit" aria-label="ค้นหา"><Search size={20} /></button>
@@ -882,44 +930,39 @@ function PreviewController({ session, onRevoked }) {
                 <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>ทั้งหมด</button>
                 <button type="button" className={filter === "favorites" ? "active" : ""} onClick={() => setFilter("favorites")}>☆ เพลงโปรด ({favorites.length})</button>
               </div>
+              <p className="mobile-tip"><strong>Tips</strong> คุณสามารถกดดาวเพื่อเพิ่มเพลงโปรดไว้ในเครื่องได้</p>
               {phase === "loading" && <div className="empty-state"><LoaderCircle className="spin" size={30} /><span>กำลังค้นหาจาก YouTube…</span></div>}
               {phase === "error" && <div className="empty-state"><b>ค้นหาไม่สำเร็จ</b><span>ตรวจลิงก์หรือคำค้น แล้วลองใหม่อีกครั้ง</span></div>}
               {filter === "favorites" && displayedResults.length === 0 && <div className="empty-state"><b>ยังไม่มีเพลงโปรด</b><span>กดดาวที่เพลงเพื่อเก็บไว้ในเครื่องนี้</span></div>}
-              {filter === "all" && phase === "idle" && <div className="empty-state"><b>ค้นหาเพลงที่จะร้อง</b><span>ผลลัพธ์มาจาก YouTube จริง และปุ่ม + จะเพิ่มเข้าคิวห้องนี้</span></div>}
+              {filter === "all" && phase === "idle" && <SearchResultExample />}
               {phase === "done" && filter === "all" && displayedResults.length === 0 && <div className="empty-state"><b>ไม่พบเพลง</b><span>ลองเพิ่มชื่อศิลปิน หรือวางลิงก์ YouTube โดยตรง</span></div>}
               {displayedResults.length > 0 && <div className="result-heading"><p>{filter === "favorites" ? "เพลงโปรดของฉัน" : "ผลการค้นหา"}</p><small>{displayedResults.length} รายการ</small></div>}
               <ul className="song-list">
                 {displayedResults.map((track) => <SongRow key={track.videoId} track={track} favorite={favorites.some((item) => item.videoId === track.videoId)} onFavorite={toggleFavorite} onAdd={add} />)}
               </ul>
-              <p className="live-callout"><strong><RoomIcon size={12} /> LIVE</strong> · เพิ่มเพลงแล้วทุกอุปกรณ์ในห้องจะเห็นคิวเดียวกันทันที</p>
             </>
           )}
 
           {tab === "queue" && (
             <>
-              <section className="queue-title"><div><p className="eyebrow"><RoomIcon size={12} /> LIVE</p><h1>คิวของเรา</h1></div><p>{room.queue.length} เพลง</p></section>
+              <section className="queue-title"><h1>คิวของเรา</h1><p>{room.queue.length} เพลง</p></section>
               <section className="fair-toggle"><div><strong>ผลัดกันร้อง</strong><small>{room.settings?.fairQueue ? "เปิดอยู่ · ระบบกระจายคิวตามผู้ขอ" : "ปิดอยู่ · จัดลำดับเองได้"}</small></div><button type="button" className={`switch ${room.settings?.fairQueue ? "on" : ""}`} onClick={toggleFairQueue} disabled={fairSaving} aria-pressed={Boolean(room.settings?.fairQueue)}><i /></button></section>
-              <div className="queue-toolbar"><span>{reorderMode ? "กดลูกศรเพื่อย้ายเพลง" : "คิวนี้เป็นของห้องจริง"}</span><button type="button" onClick={() => setReorderMode((value) => !value)} disabled={room.queue.length < 2}>{reorderMode ? "เสร็จสิ้น" : "สลับคิว"}</button></div>
               <section className="queue-list">
                 {room.queue.length === 0 && <div className="empty-state"><b>คิวว่างอยู่</b><span>กลับไปค้นหาเพลงที่อยากร้องได้เลย</span></div>}
-                {room.queue.map((track, index) => (
-                  <article className="queue-item" key={track.queueId}>
-                    <span className="queue-pos">{String(index + 1).padStart(2, "0")}</span>
-                    <Cover track={track} />
-                    <div><strong>{track.title}</strong><small>{track.channelTitle || "YouTube"} · ขอโดย {track.requestedBy || "สมาชิก"}</small><div className="queue-controls">
-                      {reorderMode ? <><button type="button" onClick={() => move(track, index, -1)} disabled={index === 0 || Boolean(busy)} aria-label="เลื่อนขึ้น">↑</button><button type="button" onClick={() => move(track, index, 1)} disabled={index === room.queue.length - 1 || Boolean(busy)} aria-label="เลื่อนลง">↓</button></> : <><button type="button" className="play-now" onClick={() => playNow(track)} disabled={Boolean(busy)}><Play size={13} /> เล่นทันที</button><button type="button" className="remove" onClick={() => remove(track)} disabled={Boolean(busy)} aria-label="ลบเพลง"><Trash2 size={15} /></button></>}
-                    </div></div>
-                  </article>
-                ))}
+                {room.queue.length > 0 && <DndContext sensors={queueSensors} collisionDetection={closestCenter} onDragEnd={queueDragEnd}>
+                  <SortableContext items={room.queue.map((item) => item.queueId)} strategy={verticalListSortingStrategy}>
+                    {room.queue.map((track, index) => <SortableQueueItem key={track.queueId} track={track} index={index} busy={busy} onPlayNow={playNow} onRemove={remove} />)}
+                  </SortableContext>
+                </DndContext>}
               </section>
             </>
           )}
 
           {tab === "history" && (
             <>
-              <section className="history-title"><p className="eyebrow">THE GOOD PARTS</p><h1>ประวัติการร้อง</h1><p><RoomIcon size={12} /> · {history.length} เพลง</p></section>
+              <section className="history-title"><div className="history-heading"><h1>ประวัติการร้อง</h1><p className="history-count">{history.length} เพลง</p></div></section>
               <section className="history-list">
-                {history.length === 0 && <div className="empty-state"><b>ยังไม่มีประวัติ</b><span>เพลงที่จบหรือถูกข้ามจะปรากฏที่นี่</span></div>}
+                {history.length === 0 && <HistoryExample />}
                 {history.map((item, index) => {
                   const track = normalizeTrack(item);
                   return <article className="history-row" key={item.id || `${item.videoId}-${index}`}><Cover track={track} /><div><strong>{track.title}</strong><small>{track.channelTitle || "YouTube"} · {item.status === "completed" ? "ร้องจบแล้ว" : item.status === "skipped" ? "ข้ามแล้ว" : "หยุดก่อนจบ"}</small></div><button type="button" className="readd" onClick={() => add(track)} disabled={busy === `add:${track.videoId}`}><Plus size={14} /> ร้องอีก</button></article>;
@@ -940,7 +983,7 @@ function PreviewController({ session, onRevoked }) {
           >
             {room.playback?.playing ? <Pause size={20} /> : <Play size={20} />}
           </button>
-          <button type="button" className="dock-details" onClick={() => setSheet("remote")}><span>{current ? "กำลังเล่นบนทีวี" : "WAITING"}</span><strong>{current?.title || "รอเพลงแรก"}</strong><small>{current ? `${current.channelTitle || "YouTube"} · ${current.requestedBy || "สมาชิก"}` : "เพิ่มเพลงจากหน้าค้นหาได้เลย"}</small></button>
+          <button type="button" className="dock-details" onClick={() => setSheet("remote")}><span>{current ? "Now playing" : "WAITING"}</span><strong>{current?.title || "รอเพลงแรก"}</strong><small>{current ? `${current.channelTitle || "YouTube"} · ${current.requestedBy || "สมาชิก"}` : "เพิ่มเพลงจากหน้าค้นหาได้เลย"}</small></button>
           <button type="button" className="dock-expand svg-button" onClick={() => setSheet("remote")} aria-label="เปิดรีโมท"><Maximize2 size={18} /></button>
         </section>
 
@@ -960,7 +1003,7 @@ function PreviewController({ session, onRevoked }) {
               <>
                 <p className="eyebrow">MOBILE REMOTE · LIVE</p>
                 <h2 id="remoteSheetTitle">{current?.title || "รอเพลงแรก"}</h2>
-                <p className="sheet-subtitle">{current ? <><span>{current.channelTitle || "YouTube"}</span> · <RoomIcon size={12} /> {session.roomId}</> : "ยังไม่มีเพลงกำลังเล่น"}</p>
+                <p className="sheet-subtitle">{current ? <span>{current.channelTitle || "YouTube"}</span> : "ยังไม่มีเพลงกำลังเล่น"}</p>
                 <div className="remote-primary">
                   <button
                     type="button"
@@ -973,9 +1016,6 @@ function PreviewController({ session, onRevoked }) {
                   <button type="button" disabled={!current || Boolean(busy)} onClick={skip}>
                     <SkipForward size={17} /> ข้ามเพลง
                   </button>
-                  <button type="button" disabled={!current || Boolean(busy)} onClick={complete}>
-                    <Check size={17} /> จบเพลง
-                  </button>
                 </div>
                 <div className="volume-row">
                   <button type="button" disabled={!current || playbackSaving} onClick={() => updatePlayback({ muted: !room.playback?.muted })} aria-label={room.playback?.muted ? "เปิดเสียง" : "ปิดเสียง"}>
@@ -983,7 +1023,6 @@ function PreviewController({ session, onRevoked }) {
                   </button>
                   <label>ระดับเสียง <output>{volumeDraft ?? room.playback?.volume ?? 75}%</output><input type="range" min="0" max="100" value={volumeDraft ?? room.playback?.volume ?? 75} disabled={!current || playbackSaving} onChange={changeVolume} /></label>
                 </div>
-                <p className="sheet-note">คำสั่งเล่น เสียง และคิวส่งเข้าจอ Host ของห้องนี้จริง</p>
               </>
             )}
             {sheet === "share" && <><p className="eyebrow">INVITATION · LIVE</p><h2 id="remoteSheetTitle">ชวนเพื่อนเข้าห้อง</h2><p className="sheet-subtitle"><RoomIcon size={12} /> {session.roomId} · ลิงก์นี้มี join token ใน fragment ที่ไม่ถูกส่งไปกับ request</p><label className="copy-field">ลิงก์เข้าร่วม<input readOnly value={partyJoinUrlFor(session.roomId, session.joinToken)} /></label><button type="button" className="sheet-action" onClick={shareRoom}><Copy size={16} /> คัดลอก / แชร์ลิงก์จริง</button></>}
