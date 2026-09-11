@@ -25,10 +25,10 @@ const CLASSIFICATION = {
   instrumental: { classification: "instrumental", badge: "Instrumental" },
   backing: { classification: "backing_track", badge: "Backing Track" }
 };
-// Search pages stay deliberately small. The controller requests one page at a
-// time and caps the client experience at two pages (30 tracks total), which
-// keeps each request within the YouTube API's inexpensive search budget.
-const MAX_SEARCH_RESULTS = 15;
+// The hosted controller requests one result page at a time. Keep that page at
+// 30 tracks so the UI can render its full result set without a second search
+// request. The optional page token remains supported for older clients.
+const MAX_SEARCH_RESULTS = 30;
 const MAX_PAGE_TOKEN_LENGTH = 256;
 const PAGE_TOKEN_PATTERN = /^[A-Za-z0-9_-]+$/u;
 const PREFERRED_CHANNEL = /(?:\bgmm(?:\s*grammy)?\b|จีเอ็มเอ็ม|grammy|genie\s*records|what(?:the)?duck|loveis|rs\s*music|warner\s*music|sony\s*music|universal\s*music)/iu;

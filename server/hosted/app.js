@@ -458,7 +458,7 @@ export async function createHostedApplication({
       const result = await youtube.search({
         query: request.query.q,
         mode: request.query.mode ?? "both",
-        maxResults: request.query.limit ?? 15,
+        maxResults: request.query.limit ?? 30,
         pageToken: request.query.pageToken
       });
       store.recordActivity(request.room.roomId, now());

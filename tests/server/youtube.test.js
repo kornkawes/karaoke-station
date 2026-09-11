@@ -61,6 +61,7 @@ describe("YouTubeService", () => {
     const searchUrl = new URL(fetchImpl.mock.calls[0][0]);
     expect(searchUrl.searchParams.get("videoEmbeddable")).toBe("true");
     expect(searchUrl.searchParams.get("videoSyndicated")).toBe("true");
+    expect(searchUrl.searchParams.get("maxResults")).toBe("50");
     expect(searchUrl.searchParams.get("key")).toBe("test-key");
     expect(second.cached).toBe(true);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
@@ -212,7 +213,7 @@ describe("YouTubeService", () => {
     expect(second.results.map((item) => item.videoId)).toEqual([secondId]);
     expect(second.nextPageToken).toBe("PAGE_THREE");
     expect(new URL(fetchImpl.mock.calls[2][0]).searchParams.get("pageToken")).toBe("PAGE_TWO");
-    expect(await service.search({ query: "แบ่งหน้า", mode: "both", pageToken: "PAGE_TWO" })).toMatchObject({ cached: true });
+    expect(await service.search({ query: "แบ่งหน้า", mode: "both", maxResults: 15, pageToken: "PAGE_TWO" })).toMatchObject({ cached: true });
     expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
 

@@ -18,6 +18,7 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(page.locator(".invite-gate .host-actions button")).toHaveText("สร้างห้องใหม่");
   await expect(page.locator(".invite-gate .host-actions button svg")).toHaveCount(0);
   await expect(page.locator(".stage-media")).toHaveAttribute("src", /kavaoke-family-home/);
+  await expect(page.locator(".stage-media")).toHaveCSS("object-fit", "cover");
   await expect(page.locator(".invite-brand > span")).toHaveCount(0);
   await expect.poll(() => page.locator(".invite-brand").evaluate((node) => getComputedStyle(node, "::after").display)).toBe("none");
   await expect(page.getByText("พร้อมใช้งาน")).toHaveCount(0);
@@ -97,6 +98,10 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(page.locator('.display-stage[data-display-mode="presentation"]')).toBeVisible({ timeout: 15_000 });
   await expect(page.locator(".invite-gate")).toHaveCount(0);
   await expect(page.locator(".real-qr")).toHaveCount(0);
+  // The approved family artwork remains the waiting-room backdrop until the
+  // first song is queued, and must cover the display frame without letterbox bars.
+  await expect(page.locator(".stage-media")).toBeVisible();
+  await expect(page.locator(".stage-media")).toHaveCSS("object-fit", "cover");
   await expect(page.locator(".system-track-bar")).toBeVisible();
   await expect(page.locator(".system-track-kicker-label")).toHaveText("KAVAOKE STATION");
 
@@ -345,7 +350,7 @@ test("mobile notices stay compact above sheets without horizontal overlap", asyn
   await expect(phone.locator(".toast")).toHaveCount(0);
 });
 
-test("search loads one 15-song page and one more page at the list end", async ({ page, context }) => {
+test("search requests one 30-song page without a second request", async ({ page, context }) => {
   await page.goto("/display");
   const host = await expect.poll(() => page.evaluate(() => {
     const value = sessionStorage.getItem("karaoke.hostSession");
@@ -358,11 +363,9 @@ test("search loads one 15-song page and one more page at the list end", async ({
   await phone.route("**/api/v1/rooms/*/search*", async (route) => {
     const url = new URL(route.request().url());
     requests.push(url);
-    const pageNumber = url.searchParams.has("pageToken") ? 2 : 1;
-    const start = pageNumber === 1 ? 0 : 15;
-    const results = Array.from({ length: 15 }, (_, index) => ({
-      videoId: `${"a".repeat(10)}${(start + index).toString(36)}`,
-      title: `เพลงหน้า ${start + index + 1} Karaoke`,
+    const results = Array.from({ length: 30 }, (_, index) => ({
+      videoId: `${"a".repeat(9)}${index.toString(36).padStart(2, "0")}`,
+      title: `เพลงผลลัพธ์ ${index + 1} Karaoke`,
       channelTitle: "QA Karaoke",
       classification: "karaoke",
       badge: "Karaoke"
@@ -370,26 +373,25 @@ test("search loads one 15-song page and one more page at the list end", async ({
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ data: { results, nextPageToken: pageNumber === 1 ? "PAGE_TWO" : "PAGE_THREE" } })
+      body: JSON.stringify({ data: { results, nextPageToken: "PAGE_TWO" } })
     });
   });
 
   await phone.goto(host.joinPath);
-  await phone.getByLabel("ชื่อของคุณ").fill("มือถือ Pagination");
+  await phone.getByLabel("ชื่อของคุณ").fill("มือถือ 30 เพลง");
   await phone.getByRole("button", { name: "เข้าร่วมห้อง", exact: true }).click();
   await expect(phone.locator(".search-box input")).toBeEnabled();
   await phone.locator(".search-box input").fill("เพลงทดสอบ");
   await phone.locator(".search-box button").click();
-  await expect(phone.locator(".song-row")).toHaveCount(15);
+  await expect(phone.locator(".song-row")).toHaveCount(30);
   await expect.poll(() => requests.length).toBe(1);
-  expect(requests[0].searchParams.get("limit")).toBe("15");
+  expect(requests[0].searchParams.get("limit")).toBe("30");
   expect(requests[0].searchParams.has("pageToken")).toBe(false);
 
   await phone.locator(".phone-content").evaluate((node) => node.scrollTo(0, node.scrollHeight));
-  await expect.poll(() => requests.length).toBe(2);
+  await phone.waitForTimeout(250);
+  expect(requests).toHaveLength(1);
   await expect(phone.locator(".song-row")).toHaveCount(30);
-  expect(requests[1].searchParams.get("limit")).toBe("15");
-  expect(requests[1].searchParams.get("pageToken")).toBe("PAGE_TWO");
   await expect(phone.locator(".search-load-more")).toHaveCount(0);
 });
 

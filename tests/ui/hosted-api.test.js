@@ -117,6 +117,18 @@ describe("request shaping", () => {
     expect(JSON.parse(options.body)).toEqual({ fairQueue: true });
   });
 
+  it("requests 30 search results by default in one first-page request", async () => {
+    const spy = mockFetch(200, { data: { results: [], nextPageToken: "PAGE_TWO" } });
+    await hostedApi.search("ABCD2345", "controller-token", "เพลงไทย");
+
+    const [url, options] = spy.mock.calls[0];
+    const parsed = new URL(url, "https://karaoke.example");
+    expect(parsed.pathname).toBe("/api/v1/rooms/ABCD2345/search");
+    expect(parsed.searchParams.get("limit")).toBe("30");
+    expect(parsed.searchParams.has("pageToken")).toBe(false);
+    expect(options.headers.Authorization).toBe("Bearer controller-token");
+  });
+
   it("requests a later search page only with its opaque page token", async () => {
     const spy = mockFetch(200, { data: { results: [], nextPageToken: "PAGE_THREE" } });
     await hostedApi.search("ABCD2345", "controller-token", "เพลงไทย", "both", {

@@ -67,7 +67,7 @@ export const hostedApi = {
     request(roomPath(roomId, "/join"), { method: "POST", body: { joinToken, displayName } }),
 
   queue: (roomId, token) => request(roomPath(roomId, "/queue"), { token }),
-  search: (roomId, token, searchText, mode = "both", { limit = 15, pageToken } = {}) =>
+  search: (roomId, token, searchText, mode = "both", { limit = 30, pageToken } = {}) =>
     request(`${roomPath(roomId, "/search")}?${query({ q: searchText, mode, limit, pageToken })}`, { token }),
   addTrack: (roomId, token, track, { playNow = false, allowDuplicate } = {}) =>
     request(roomPath(roomId, "/queue"), {

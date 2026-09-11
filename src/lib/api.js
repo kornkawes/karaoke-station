@@ -45,7 +45,7 @@ export const karaokeApi = {
   config: () => request("/config"),
   state: () => request("/state"),
   parseYouTube: (input) => request("/youtube/parse", { method: "POST", body: JSON.stringify({ input }) }),
-  search: (searchText, mode = "both") => request(`/search?${query({ q: searchText, mode, limit: 15 })}`),
+  search: (searchText, mode = "both") => request(`/search?${query({ q: searchText, mode, limit: 30 })}`),
   suggestions: (searchText, token) => token
     ? request(`/party/suggestions?${query({ q: searchText, limit: 8 })}`, { headers: bearer(token) })
     : request(`/suggestions?${query({ q: searchText, limit: 8 })}`),
@@ -89,7 +89,7 @@ export const karaokeApi = {
     method: "PATCH", headers: bearer(token), body: JSON.stringify(patch)
   }),
   partySearch: (searchText, mode = "both", token) =>
-    request(`/party/search?${query({ q: searchText, mode, limit: 15 })}`, { headers: bearer(token) }),
+    request(`/party/search?${query({ q: searchText, mode, limit: 30 })}`, { headers: bearer(token) }),
   partyQueue: (track, token) =>
     request("/party/queue", { method: "POST", headers: bearer(token), body: JSON.stringify({ track: apiTrack(track) }) }),
   partyRemove: (itemId, token, revision) => request(`/party/queue/${encodeURIComponent(itemId)}`, {

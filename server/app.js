@@ -265,7 +265,7 @@ export async function createApplication({
     const result = await youtube.search({
       query: request.query.q,
       mode: request.query.mode ?? "both",
-      maxResults: request.query.limit ?? 15
+      maxResults: request.query.limit ?? 30
     });
     suggestions.remember(result.query);
     data(response, result);
@@ -551,7 +551,7 @@ export async function createApplication({
     const result = await youtube.search({
       query: request.query.q,
       mode: request.query.mode ?? "both",
-      maxResults: request.query.limit ?? 15
+      maxResults: request.query.limit ?? 30
     });
     suggestions.remember(result.query);
     data(response, result);
