@@ -9,6 +9,7 @@ import { AppError, asyncRoute } from "../lib/errors.js";
 import {
   addToQueue,
   advanceQueue,
+  orderQueueByArrival,
   playQueueItemNow,
   publicMutationResult,
   publicTrack,
@@ -383,6 +384,8 @@ export async function createHostedApplication({
           currentRequester: draft.current?.requestedBy,
           currentRequesterKey: draft.current?._requesterKey
         });
+      } else if (safePatch.fairQueue === false && wasFairQueue) {
+        draft.queue = orderQueueByArrival(draft.queue);
       }
       return draft.settings;
     });
@@ -455,7 +458,8 @@ export async function createHostedApplication({
       const result = await youtube.search({
         query: request.query.q,
         mode: request.query.mode ?? "both",
-        maxResults: request.query.limit ?? 15
+        maxResults: request.query.limit ?? 15,
+        pageToken: request.query.pageToken
       });
       store.recordActivity(request.room.roomId, now());
       data(response, result);

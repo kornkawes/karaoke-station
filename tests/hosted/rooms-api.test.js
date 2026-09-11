@@ -195,6 +195,36 @@ describe("role separation", () => {
       .expect(403);
   });
 
+  it("rebalances an existing queue when fair mode opens and restores arrival order when it closes", async () => {
+    const room = await createRoom();
+    const alice = await joinRoom(room, "Alice");
+    const bob = await joinRoom(room, "Bob");
+
+    await addTrack(room, alice.token, videoA).expect(201);
+    clock.value += 1;
+    await addTrack(room, alice.token, videoB).expect(201);
+    clock.value += 1;
+    await addTrack(room, bob.token, videoC).expect(201);
+
+    await api("patch", `/api/v1/rooms/${room.roomId}/settings`)
+      .set("Authorization", `Bearer ${alice.token}`)
+      .send({ fairQueue: true })
+      .expect(200);
+    const fair = await api("get", `/api/v1/rooms/${room.roomId}/queue`)
+      .set("Authorization", `Bearer ${alice.token}`)
+      .expect(200);
+    expect(fair.body.data.queue.map((item) => item.videoId)).toEqual([videoC.videoId, videoB.videoId]);
+
+    await api("patch", `/api/v1/rooms/${room.roomId}/settings`)
+      .set("Authorization", `Bearer ${alice.token}`)
+      .send({ fairQueue: false })
+      .expect(200);
+    const chronological = await api("get", `/api/v1/rooms/${room.roomId}/queue`)
+      .set("Authorization", `Bearer ${alice.token}`)
+      .expect(200);
+    expect(chronological.body.data.queue.map((item) => item.videoId)).toEqual([videoB.videoId, videoC.videoId]);
+  });
+
   it("lets a controller complete the current song and records completed history", async () => {
     const room = await createRoom();
     const controller = await joinRoom(room);

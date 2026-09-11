@@ -4,6 +4,10 @@ const auth = (token) => ({ Authorization: `Bearer ${token}` });
 
 test("approved preview is the default live display and controller", async ({ page, context, request }) => {
   await page.addInitScript(() => localStorage.setItem("karaoke_ui", "modern"));
+  // Keep this HUD/layout test deterministic when YouTube changes the sample
+  // video's embed policy. The app's loader failure path leaves the queued
+  // track visible, which is the state this test exercises.
+  await page.route("https://www.youtube.com/**", (route) => route.abort());
   await page.goto("/display");
   await expect(page.locator(".display-stage")).toBeVisible();
   await expect(page.locator('.display-stage[data-display-mode="invite"]')).toBeVisible();
@@ -61,6 +65,7 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(phone.locator(".phone-header .wordmark i")).toHaveText("STATION");
   await expect(phone.locator(".phone-header .room-icon")).toHaveCount(1);
   await expect(phone.locator(".phone-header .room-icon")).toHaveCSS("width", "14px");
+  await expect(phone.locator(".desktop-context")).toHaveCount(0);
   await expect(phone.locator(".search-box input")).toBeEnabled();
   await expect(phone.locator(".mobile-hero")).toHaveCount(0);
   await expect(phone.locator(".mobile-tip")).toContainText("Tips");
@@ -78,6 +83,7 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(page.locator(".invite-gate")).toHaveCount(0);
   await expect(page.locator(".real-qr")).toHaveCount(0);
   await expect(page.locator(".system-track-bar")).toBeVisible();
+  await expect(page.locator(".system-track-kicker-label")).toHaveText("KAVAOKE STATION");
 
   for (const viewport of [
     { width: 700, height: 520 },
@@ -97,8 +103,14 @@ test("approved preview is the default live display and controller", async ({ pag
   // The presentation latch survives a Host refresh while the controller socket
   // is reconnecting.
   await page.reload();
-  await expect(page.locator('.display-stage[data-display-mode="presentation"]')).toBeVisible();
+  // A cold browser process can re-fetch the lazy preview chunk during reload;
+  // wait for that bounded startup without weakening the rest of the flow.
+  await expect(page.locator('.display-stage[data-display-mode="presentation"]')).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".invite-gate")).toHaveCount(0);
+  // Socket.IO may spend a reconnect backoff window restoring the Host socket
+  // after a full refresh. Give the live indicator that bounded reconnect time
+  // instead of racing the default five-second assertion timeout.
+  await expect(page.locator(".system-track-status.is-online")).toBeVisible({ timeout: 15_000 });
 
   const controller = await phone.evaluate(() => JSON.parse(sessionStorage.getItem("karaoke.controllerSession")));
   const queued = await request.post(`/api/v1/rooms/${host.roomId}/queue`, {
@@ -107,18 +119,30 @@ test("approved preview is the default live display and controller", async ({ pag
   });
   expect(queued.ok()).toBeTruthy();
   await expect(page.locator(".host-toast.show")).toBeVisible();
-  const hostToastMetrics = await page.locator(".host-toast.show").evaluate((toast) => {
-    const meta = document.querySelector(".system-track-bar").getBoundingClientRect();
+  // Read the toast and HUD geometry in one browser-side wait. A later player
+  // notice may replace the toast node between two separate locator reads;
+  // keeping the condition and snapshot atomic avoids a false layout failure.
+  const hostToastMetricsHandle = await page.waitForFunction(() => {
+    const toast = document.querySelector(".host-toast.show");
+    const metaNode = document.querySelector(".system-track-bar");
+    if (!toast || !metaNode) return false;
+    const meta = metaNode.getBoundingClientRect();
     const box = toast.getBoundingClientRect();
     const style = getComputedStyle(toast);
+    if (box.top < 85 || box.top < meta.bottom - 1) return false;
     return { top: box.top, left: box.left, height: box.height, metaBottom: meta.bottom, whiteSpace: style.whiteSpace };
   });
+  const hostToastMetrics = await hostToastMetricsHandle.jsonValue();
+  await hostToastMetricsHandle.dispose();
   expect(hostToastMetrics.top).toBeGreaterThanOrEqual(hostToastMetrics.metaBottom - 1);
   expect(hostToastMetrics.left).toBeLessThanOrEqual(40);
   expect(hostToastMetrics.height).toBeLessThanOrEqual(34);
   expect(hostToastMetrics.whiteSpace).toBe("nowrap");
   await page.waitForTimeout(2_100);
-  await expect(page.locator(".host-toast")).toHaveCount(0);
+  // A player error can legitimately replace the add notice while the test
+  // video is initializing. Verify the add toast itself has expired without
+  // masking that independent playback status.
+  await expect(page.locator(".host-toast").filter({ hasText: "เพิ่ม “เพลงหน้าตา Preview” แล้ว" })).toHaveCount(0);
   const queuedNext = await request.post(`/api/v1/rooms/${host.roomId}/queue`, {
     headers: auth(controller.token),
     data: { track: { videoId: "M7lc1UVf-VE", title: "เพลงถัดไป Preview", channelTitle: "QA" } }
@@ -159,6 +183,16 @@ test("approved preview is the default live display and controller", async ({ pag
   });
   expect(Math.abs(fullscreenAlignment.fullscreenCenter - fullscreenAlignment.liveCenter)).toBeLessThanOrEqual(1);
   expect(Math.abs(fullscreenAlignment.fullscreenCenter - fullscreenAlignment.barCenter)).toBeLessThanOrEqual(1);
+  const resetIconAlignment = await page.evaluate(() => {
+    const button = document.querySelector(".room-reset-control").getBoundingClientRect();
+    const icon = document.querySelector(".room-reset-control > svg").getBoundingClientRect();
+    return {
+      x: Math.abs((button.left + button.width / 2) - (icon.left + icon.width / 2)),
+      y: Math.abs((button.top + button.height / 2) - (icon.top + icon.height / 2))
+    };
+  });
+  expect(resetIconAlignment.x).toBeLessThanOrEqual(0.5);
+  expect(resetIconAlignment.y).toBeLessThanOrEqual(0.5);
   for (const viewport of [
     { width: 700, height: 520 },
     { width: 520, height: 700 },
@@ -205,6 +239,13 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(phone.locator(".fair-toggle")).toBeVisible();
   await expect(phone.locator(".now-dock")).toContainText("เพลงถัดไป Preview");
   await expect(phone.locator(".bottom-nav")).toBeVisible();
+
+  await expect(page.getByRole("button", { name: "รีเซ็ตห้องกลับไปหน้า QR" })).toBeVisible();
+  await page.getByRole("button", { name: "รีเซ็ตห้องกลับไปหน้า QR" }).click();
+  await expect(page.locator('.display-stage[data-display-mode="invite"]')).toBeVisible();
+  await expect(page.locator(".invite-gate")).toBeVisible();
+  const resetHost = await page.evaluate(() => JSON.parse(sessionStorage.getItem("karaoke.hostSession")));
+  expect(resetHost.roomId).not.toBe(host.roomId);
 });
 
 test("mobile notices stay compact above sheets without horizontal overlap", async ({ page, context, request }) => {
@@ -288,6 +329,54 @@ test("mobile notices stay compact above sheets without horizontal overlap", asyn
   await expect(phone.locator(".toast")).toHaveCount(0);
 });
 
+test("search loads one 15-song page and one more page at the list end", async ({ page, context }) => {
+  await page.goto("/display");
+  const host = await expect.poll(() => page.evaluate(() => {
+    const value = sessionStorage.getItem("karaoke.hostSession");
+    return value ? JSON.parse(value) : null;
+  })).not.toBeNull().then(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("karaoke.hostSession"))));
+
+  const phone = await context.newPage();
+  await phone.setViewportSize({ width: 390, height: 844 });
+  const requests = [];
+  await phone.route("**/api/v1/rooms/*/search*", async (route) => {
+    const url = new URL(route.request().url());
+    requests.push(url);
+    const pageNumber = url.searchParams.has("pageToken") ? 2 : 1;
+    const start = pageNumber === 1 ? 0 : 15;
+    const results = Array.from({ length: 15 }, (_, index) => ({
+      videoId: `${"a".repeat(10)}${(start + index).toString(36)}`,
+      title: `เพลงหน้า ${start + index + 1} Karaoke`,
+      channelTitle: "QA Karaoke",
+      classification: "karaoke",
+      badge: "Karaoke"
+    }));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: { results, nextPageToken: pageNumber === 1 ? "PAGE_TWO" : "PAGE_THREE" } })
+    });
+  });
+
+  await phone.goto(host.joinPath);
+  await phone.getByLabel("ชื่อของคุณ").fill("มือถือ Pagination");
+  await phone.getByRole("button", { name: "เข้าร่วมห้อง", exact: true }).click();
+  await expect(phone.locator(".search-box input")).toBeEnabled();
+  await phone.locator(".search-box input").fill("เพลงทดสอบ");
+  await phone.locator(".search-box button").click();
+  await expect(phone.locator(".song-row")).toHaveCount(15);
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].searchParams.get("limit")).toBe("15");
+  expect(requests[0].searchParams.has("pageToken")).toBe(false);
+
+  await phone.locator(".phone-content").evaluate((node) => node.scrollTo(0, node.scrollHeight));
+  await expect.poll(() => requests.length).toBe(2);
+  await expect(phone.locator(".song-row")).toHaveCount(30);
+  expect(requests[1].searchParams.get("limit")).toBe("15");
+  expect(requests[1].searchParams.get("pageToken")).toBe("PAGE_TWO");
+  await expect(phone.locator(".search-load-more")).toHaveCount(0);
+});
+
 test("mobile shell keeps header, scroll area, dock and nav in separate layers", async ({ page, context }) => {
   await page.goto("/display");
   const host = await expect.poll(() => page.evaluate(() => {
@@ -313,6 +402,8 @@ test("mobile shell keeps header, scroll area, dock and nav in separate layers", 
     { width: 360, height: 740 },
     { width: 390, height: 844 },
     { width: 412, height: 915 },
+    { width: 768, height: 1024 },
+    { width: 1024, height: 768 },
     { width: 844, height: 390 }
   ]) {
     await phone.setViewportSize(viewport);

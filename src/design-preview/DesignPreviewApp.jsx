@@ -25,7 +25,8 @@ import {
   VolumeX,
   Wifi,
   WifiOff,
-  X
+  X,
+  Zap
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -59,6 +60,8 @@ import "./runtime.css";
 
 const FAVORITES_KEY = "karaoke.preview.live.favorites";
 const HOST_PRESENTATION_KEY = "karaoke.hostPresentation";
+const SEARCH_PAGE_SIZE = 15;
+const SEARCH_MAX_RESULTS = 30;
 
 function hostPresentationKey(roomId) {
   return roomId ? `${HOST_PRESENTATION_KEY}:${roomId}` : "";
@@ -82,6 +85,18 @@ function clearHostPresentation(roomId) {
   } catch {
     // Private-mode storage can be unavailable; the in-memory state still resets.
   }
+}
+
+async function closeHostRoomWithRetry(roomId, token) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await hostedApi.closeRoom(roomId, token);
+      return true;
+    } catch {
+      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+  }
+  return false;
 }
 
 function readFavorites() {
@@ -194,11 +209,15 @@ function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyPreviewR
           fs: 0,
           playsinline: 1,
           rel: 0,
+          // Keep YouTube's optional caption layer out of the karaoke video;
+          // most karaoke uploads already burn the lyrics into the picture.
+          cc_load_policy: 0,
           iv_load_policy: 3,
           origin: window.location.origin
         },
         events: {
           onReady: ({ target }) => {
+            target.unloadModule?.("captions");
             const next = playbackRef.current;
             target.setVolume(next.volume);
             if (next.muted) target.mute();
@@ -284,6 +303,10 @@ function PreviewDisplayView() {
   const [idleNow, setIdleNow] = useState(() => Date.now());
   const stageRef = useRef(null);
   const failureRef = useRef({ videoId: "", count: 0 });
+  // Keep the active Host token in memory as the source of truth for socket
+  // callbacks. sessionStorage is helpful for refreshes, but can be unavailable
+  // in private browsing and must not let a revoked room clear a fresh session.
+  const activeHostTokenRef = useRef(session?.token || "");
 
   const enterPresentation = useCallback((controllerCount) => {
     if (!session?.roomId || Number(controllerCount) <= 0) return;
@@ -322,10 +345,8 @@ function PreviewDisplayView() {
     setError("");
     try {
       const previous = session;
-      if (previous?.roomId && previous?.token) {
-        await hostedApi.closeRoom(previous.roomId, previous.token).catch(() => {});
-        clearHostPresentation(previous.roomId);
-      }
+      // Create the replacement first. If the network rejects the new room,
+      // the current room and its queue remain usable instead of being lost.
       const created = await hostedApi.createRoom();
       const next = {
         roomId: created.roomId,
@@ -335,6 +356,11 @@ function PreviewDisplayView() {
         expiresAt: created.expiresAt,
         searchConfigured: created.searchConfigured
       };
+      if (previous?.roomId && previous?.token) {
+        await closeHostRoomWithRetry(previous.roomId, previous.token);
+        clearHostPresentation(previous.roomId);
+      }
+      activeHostTokenRef.current = next.token;
       writeSession(HOST_STORAGE_KEY, next);
       setSession(next);
       setRoom(emptyPreviewRoom);
@@ -360,17 +386,18 @@ function PreviewDisplayView() {
     let live = true;
     hostedApi.room(session.roomId, session.token)
       .then((view) => {
-        if (live) {
+        if (live && activeHostTokenRef.current === session.token) {
           const nextRoom = applyPreviewRoomView(view, emptyPreviewRoom);
           setRoom(nextRoom);
           setIdleWarning(nextRoom.idle?.warning ? nextRoom.idle : null);
         }
       })
       .catch((requestError) => {
-        if (!live) return;
+        if (!live || activeHostTokenRef.current !== session.token) return;
         if (isSessionRevokedError(`${requestError.code} ${requestError.status}`)) {
           clearHostPresentation(session.roomId);
           clearSession(HOST_STORAGE_KEY);
+          activeHostTokenRef.current = "";
           setSession(null);
         } else {
           setError(requestError.message || "โหลดห้องไม่สำเร็จ");
@@ -382,6 +409,11 @@ function PreviewDisplayView() {
   useEffect(() => {
     if (!session) return undefined;
     return connectRoom(session, (event) => {
+      // Ignore late packets from a room socket that was revoked during a reset;
+      // a freshly created Host session may already be mounted by then.
+      if (activeHostTokenRef.current && activeHostTokenRef.current !== session.token) return;
+      const activeSession = readSession(HOST_STORAGE_KEY);
+      if (activeSession?.token && activeSession.token !== session.token) return;
       if (event.type === "connection") setConnected(event.connected);
       if (event.type === "room") {
         setRoom((previous) => {
@@ -409,6 +441,7 @@ function PreviewDisplayView() {
       if (event.type === "revoked") {
         clearHostPresentation(session.roomId);
         clearSession(HOST_STORAGE_KEY);
+        activeHostTokenRef.current = "";
         setSession(null);
         setConnected(false);
         setIdleWarning(null);
@@ -492,7 +525,10 @@ function PreviewDisplayView() {
   // Rebuild the invite from the room-scoped token so the QR always encodes a
   // real, scannable controller URL after a refresh as well.
   const joinUrl = sessionJoinUrlFor(session);
-  const isPresenting = presenting || room.controllerCount > 0;
+  // Read the persisted presentation latch during render as well as in the
+  // effect above. A refresh can paint the first frame before the effect runs;
+  // consulting storage here prevents the QR lobby flashing back in that gap.
+  const isPresenting = presenting || room.controllerCount > 0 || hasHostPresentation(session.roomId);
   const idleCountdown = idleWarning?.closesAt ? formatIdleCountdown(idleWarning.closesAt, idleNow) : "--:--";
   return (
     <main className={`host-display-page preview-functional-host ${isPresenting ? "is-presenting" : "is-invite"}`}>
@@ -534,7 +570,7 @@ function PreviewDisplayView() {
             <div className="system-track-copy">
               <span className="system-track-kicker">
                 <i />
-                <span className="system-track-kicker-label">{room.current ? "NOW PLAYING" : "KARAOKE STATION · READY"}</span>
+                <span className="system-track-kicker-label">{room.current ? "NOW PLAYING" : "KAVAOKE STATION"}</span>
                 <span className="system-track-roomline"><RoomIcon size={14} /><span>{session.roomId}</span></span>
               </span>
               <strong title={room.current?.title || "ยังไม่มีเพลงที่เลือกไว้"}>{room.current?.title || "ยังไม่มีเพลงที่เลือกไว้"}</strong>
@@ -560,6 +596,18 @@ function PreviewDisplayView() {
         )}
 
         <div className="display-controls" data-controls>
+          {isPresenting && (
+            <button
+              type="button"
+              className="room-reset-control"
+              onClick={createRoom}
+              disabled={creating}
+              aria-label="รีเซ็ตห้องกลับไปหน้า QR"
+              title="รีเซ็ตห้องกลับไปหน้า QR"
+            >
+              <Zap size={17} />
+            </button>
+          )}
           <button type="button" className="fullscreen-control" onClick={toggleFullscreen} aria-label="เข้าสู่โหมดเต็มหน้าจอ">
             <Maximize2 size={17} />
           </button>
@@ -602,7 +650,6 @@ function PreviewJoinView({ roomId, joinToken, onJoin }) {
 
   return (
     <main className="mobile-preview preview-functional-app">
-      <div className="desktop-context"><a href="/">← กลับหน้าจอแสดงผล</a><p>LIVE MOBILE REMOTE<br />SCAN QR FROM HOST</p></div>
       <section className="phone join-phone" aria-label="เข้าห้อง Karaoke Station" inert>
         <header className="phone-header">
           <div className="brand-block"><a className="wordmark" href="/"><strong>KAVAOKE</strong> <i>STATION</i></a><p className="room-meta"><span className="status-dot" /><RoomIcon size={12} /> {roomId || "—"} · LIVE</p></div>
@@ -720,6 +767,8 @@ function PreviewController({ session, onRevoked }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [phase, setPhase] = useState("idle");
+  const [nextSearchPageToken, setNextSearchPageToken] = useState("");
+  const [loadingMore, setLoadingMore] = useState(false);
   const [favorites, setFavorites] = useState(readFavorites);
   const [history, setHistory] = useState([]);
   const [sheet, setSheet] = useState(null);
@@ -735,6 +784,12 @@ function PreviewController({ session, onRevoked }) {
   const playbackPending = useRef(null);
   const playbackMutating = useRef(false);
   const volumeTimer = useRef(null);
+  const searchLoadMoreRef = useRef(null);
+  const searchQueryRef = useRef("");
+  const searchRunRef = useRef(0);
+  const loadingMoreRef = useRef(false);
+  const lastLoadedSearchPageTokenRef = useRef("");
+  const searchPagesLoadedRef = useRef(0);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -769,32 +824,98 @@ function PreviewController({ session, onRevoked }) {
     return () => { live = false; };
   }, [room.revision, session, tab]);
 
-  const guard = async (operation) => {
+  const guard = useCallback(async (operation) => {
     try {
       return await operation();
     } catch (requestError) {
       if (isSessionRevokedError(`${requestError.code} ${requestError.status}`)) onRevoked();
       throw requestError;
     }
-  };
+  }, [onRevoked]);
 
   const doSearch = async (event) => {
     event?.preventDefault();
     const value = query.trim();
     if (!value) return;
+    const searchRun = searchRunRef.current + 1;
+    searchRunRef.current = searchRun;
     setPhase("loading");
+    setResults([]);
+    setNextSearchPageToken("");
+    searchQueryRef.current = value;
+    loadingMoreRef.current = false;
+    lastLoadedSearchPageTokenRef.current = "";
+    searchPagesLoadedRef.current = isDirectYouTubeInput(value) ? 0 : 1;
+    setLoadingMore(false);
     try {
       const data = isDirectYouTubeInput(value)
         ? { results: [await guard(() => hostedApi.resolveYouTube(session.roomId, session.token, value))] }
-        : await guard(() => hostedApi.search(session.roomId, session.token, value));
-      setResults(uniqueSearchResults((data.results || []).map(normalizeTrack).filter(Boolean)).slice(0, 15));
+        : await guard(() => hostedApi.search(session.roomId, session.token, value, "both", { limit: SEARCH_PAGE_SIZE }));
+      if (searchRun !== searchRunRef.current) return;
+      setResults(uniqueSearchResults((data.results || []).map(normalizeTrack).filter(Boolean)).slice(0, SEARCH_PAGE_SIZE));
+      setNextSearchPageToken(isDirectYouTubeInput(value) ? "" : String(data.nextPageToken || ""));
       setPhase("done");
     } catch (requestError) {
+      if (searchRun !== searchRunRef.current) return;
       setResults([]);
       setPhase("error");
       setNotice(requestError.message || "ค้นหาไม่สำเร็จ");
     }
   };
+
+  const loadMoreSearchResults = useCallback(async () => {
+    const pageToken = nextSearchPageToken;
+    const searchText = searchQueryRef.current;
+    const searchRun = searchRunRef.current;
+    if (
+      filter !== "all" ||
+      phase !== "done" ||
+      !pageToken ||
+      !searchText ||
+      loadingMoreRef.current ||
+      pageToken === lastLoadedSearchPageTokenRef.current ||
+      searchPagesLoadedRef.current >= 2 ||
+      results.length >= SEARCH_MAX_RESULTS
+    ) return;
+
+    lastLoadedSearchPageTokenRef.current = pageToken;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const data = await guard(() => hostedApi.search(
+        session.roomId,
+        session.token,
+        searchText,
+        "both",
+        { limit: SEARCH_PAGE_SIZE, pageToken }
+      ));
+      if (searchRun !== searchRunRef.current || searchText !== searchQueryRef.current) return;
+      const incoming = uniqueSearchResults((data.results || []).map(normalizeTrack).filter(Boolean));
+      setResults((previous) => uniqueSearchResults([...previous, ...incoming]).slice(0, SEARCH_MAX_RESULTS));
+      searchPagesLoadedRef.current = 2;
+      setNextSearchPageToken("");
+    } catch (requestError) {
+      if (searchRun === searchRunRef.current && searchText === searchQueryRef.current) {
+        lastLoadedSearchPageTokenRef.current = "";
+        setNotice(requestError.message || "โหลดเพลงเพิ่มไม่สำเร็จ");
+      }
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [filter, guard, nextSearchPageToken, phase, results.length, session.roomId, session.token]);
+
+  useEffect(() => {
+    const sentinel = searchLoadMoreRef.current;
+    if (!sentinel || filter !== "all" || phase !== "done" || !nextSearchPageToken) return undefined;
+    const root = sentinel.closest(".phone-content");
+    if (typeof IntersectionObserver !== "function") return undefined;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void loadMoreSearchResults();
+    }, { root, rootMargin: "180px 0px" });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [filter, loadMoreSearchResults, nextSearchPageToken, phase, results.length]);
 
   const add = async (track) => {
     setBusy(`add:${track.videoId}`);
@@ -881,7 +1002,12 @@ function PreviewController({ session, onRevoked }) {
     setFairSaving(true);
     const enabled = !Boolean(room.settings?.fairQueue);
     try {
-      await guard(() => hostedApi.updateSettings(session.roomId, session.token, { fairQueue: enabled }));
+      const result = await guard(() => hostedApi.updateSettings(session.roomId, session.token, { fairQueue: enabled }));
+      setRoom((previous) => ({
+        ...previous,
+        revision: Math.max(previous.revision, Number(result?.revision) || previous.revision),
+        settings: { ...previous.settings, ...(result?.settings || {}), fairQueue: enabled }
+      }));
       setNotice(enabled ? "เปิดโหมดผลัดกันร้องแล้ว" : "ปิดโหมดผลัดกันร้องแล้ว");
     } catch (requestError) {
       setNotice(requestError.message || "เปลี่ยนโหมดคิวไม่สำเร็จ");
@@ -942,7 +1068,6 @@ function PreviewController({ session, onRevoked }) {
 
   return (
     <main className="mobile-preview preview-functional-app">
-      <div className="desktop-context"><a href="/">← กลับหน้าจอ Host</a><p>LIVE MOBILE REMOTE<br />REAL <RoomIcon size={12} /> · SOCKET SYNC</p></div>
       <section className="phone" aria-label="Karaoke Station mobile remote" inert={Boolean(sheet)}>
         <header className="phone-header">
           <div className="brand-block">
@@ -970,10 +1095,15 @@ function PreviewController({ session, onRevoked }) {
               {phase === "loading" && <div className="empty-state"><LoaderCircle className="spin" size={30} /><span>กำลังค้นหาจาก YouTube…</span></div>}
               {phase === "error" && <div className="empty-state"><b>ค้นหาไม่สำเร็จ</b><span>ตรวจลิงก์หรือคำค้น แล้วลองใหม่อีกครั้ง</span></div>}
               {filter === "favorites" && displayedResults.length === 0 && <div className="empty-state"><b>ยังไม่มีเพลงโปรด</b><span>กดดาวที่เพลงเพื่อเก็บไว้ในเครื่องนี้</span></div>}
-              {phase === "done" && filter === "all" && displayedResults.length === 0 && <div className="empty-state"><b>ไม่พบเพลง</b><span>ลองเพิ่มชื่อศิลปิน หรือวางลิงก์ YouTube โดยตรง</span></div>}
+              {phase === "done" && filter === "all" && displayedResults.length === 0 && !nextSearchPageToken && <div className="empty-state"><b>ไม่พบเพลง</b><span>ลองเพิ่มชื่อศิลปิน หรือวางลิงก์ YouTube โดยตรง</span></div>}
               {displayedResults.length > 0 && <div className="result-heading"><p>{filter === "favorites" ? "เพลงโปรดของฉัน" : "ผลการค้นหา"}</p><small>{displayedResults.length} รายการ</small></div>}
               <ul className="song-list">
                 {displayedResults.map((track) => <SongRow key={track.videoId} track={track} favorite={favorites.some((item) => item.videoId === track.videoId)} onFavorite={toggleFavorite} onAdd={add} />)}
+                {filter === "all" && nextSearchPageToken && (
+                  <li className="search-load-more" ref={searchLoadMoreRef} aria-live="polite">
+                    {loadingMore ? <><LoaderCircle className="spin" size={18} /> <span>กำลังโหลดเพลงเพิ่ม…</span></> : <span>เลื่อนลงเพื่อโหลดเพลงเพิ่ม</span>}
+                  </li>
+                )}
               </ul>
             </>
           )}

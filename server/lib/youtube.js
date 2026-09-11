@@ -25,7 +25,12 @@ const CLASSIFICATION = {
   instrumental: { classification: "instrumental", badge: "Instrumental" },
   backing: { classification: "backing_track", badge: "Backing Track" }
 };
+// Search pages stay deliberately small. The controller requests one page at a
+// time and caps the client experience at two pages (30 tracks total), which
+// keeps each request within the YouTube API's inexpensive search budget.
 const MAX_SEARCH_RESULTS = 15;
+const MAX_PAGE_TOKEN_LENGTH = 256;
+const PAGE_TOKEN_PATTERN = /^[A-Za-z0-9_-]+$/u;
 const PREFERRED_CHANNEL = /(?:\bgmm(?:\s*grammy)?\b|จีเอ็มเอ็ม|grammy|genie\s*records|what(?:the)?duck|loveis|rs\s*music|warner\s*music|sony\s*music|universal\s*music)/iu;
 const OFFICIAL_SOURCE = /\bofficial(?:\s+(?:channel|karaoke|music))?\b|ทางการ/iu;
 const POSITIVE_KEYWORDS = [
@@ -55,6 +60,11 @@ function thumbnailUrl(value, videoId) {
 function text(value, fallback = "", maxLength = 300) {
   const valueText = String(value ?? fallback).trim();
   return valueText.slice(0, maxLength) || fallback;
+}
+
+function pageTokenValue(value) {
+  const token = typeof value === "string" ? value : "";
+  return token && token.length <= MAX_PAGE_TOKEN_LENGTH && PAGE_TOKEN_PATTERN.test(token) ? token : "";
 }
 
 function normalizedSongKey(title) {
@@ -195,7 +205,7 @@ export class YouTubeService {
     this.resolveInFlight = new Map();
   }
 
-  async search({ query, mode = "both", maxResults = MAX_SEARCH_RESULTS }) {
+  async search({ query, mode = "both", maxResults = MAX_SEARCH_RESULTS, pageToken } = {}) {
     const trimmed = String(query ?? "").trim();
     if (!trimmed || trimmed.length > 120) {
       throw new AppError(400, "invalid_search_query", "คำค้นต้องมี 1–120 ตัวอักษร");
@@ -203,8 +213,12 @@ export class YouTubeService {
     if (!Object.prototype.hasOwnProperty.call(MODE_SUFFIX, mode)) {
       throw new AppError(400, "invalid_search_mode", "โหมดค้นหาไม่ถูกต้อง");
     }
+    const normalizedPageToken = pageTokenValue(pageToken);
+    if (pageToken != null && String(pageToken) !== normalizedPageToken) {
+      throw new AppError(400, "invalid_search_page", "หน้าค้นหาไม่ถูกต้อง กรุณาค้นหาใหม่อีกครั้ง");
+    }
     const count = Math.min(Math.max(Number(maxResults) || MAX_SEARCH_RESULTS, 1), MAX_SEARCH_RESULTS);
-    const cacheKey = `${mode}:${trimmed.toLocaleLowerCase("th")}`;
+    const cacheKey = `${mode}:${trimmed.toLocaleLowerCase("th")}:${count}:${normalizedPageToken}`;
     const cached = this.cache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       return {
@@ -223,7 +237,7 @@ export class YouTubeService {
       );
     }
     const searchUrl = new URL(SEARCH_ENDPOINT);
-    searchUrl.search = new URLSearchParams({
+    const searchParams = {
       part: "snippet",
       type: "video",
       videoEmbeddable: "true",
@@ -232,14 +246,23 @@ export class YouTubeService {
       maxResults: String(Math.min(Math.max(count * 2, 25), 50)),
       q: `${trimmed}${MODE_SUFFIX[mode]}`,
       key: apiKey
-    });
+    };
+    if (normalizedPageToken) searchParams.pageToken = normalizedPageToken;
+    searchUrl.search = new URLSearchParams(searchParams);
     const searchBody = await fetchJson(this.fetchImpl, searchUrl, { timeoutMs: this.timeoutMs });
     const ids = (searchBody?.items ?? [])
       .map((item) => item?.id?.videoId)
       .filter((id) => youtubeIdSchema.safeParse(id).success)
       .filter((id, index, all) => all.indexOf(id) === index);
     if (!ids.length) {
-      const value = { query: trimmed, mode, results: [] };
+      const value = {
+        query: trimmed,
+        mode,
+        results: [],
+        ...(pageTokenValue(searchBody?.nextPageToken)
+          ? { nextPageToken: pageTokenValue(searchBody.nextPageToken) }
+          : {})
+      };
       this.cache.set(cacheKey, { value, expiresAt: Date.now() + this.cacheTtlMs });
       if (this.cache.size > 1_000) this.cache.delete(this.cache.keys().next().value);
       return { ...cloneJson(value), cached: false };
@@ -284,7 +307,14 @@ export class YouTubeService {
           : {})
       }];
     });
-    const value = { query: trimmed, mode, results: dedupeAndRankResults(results, results.length) };
+    const value = {
+      query: trimmed,
+      mode,
+      results: dedupeAndRankResults(results, results.length),
+      ...(pageTokenValue(searchBody?.nextPageToken)
+        ? { nextPageToken: pageTokenValue(searchBody.nextPageToken) }
+        : {})
+    };
     this.cache.set(cacheKey, { value, expiresAt: Date.now() + this.cacheTtlMs });
     if (this.cache.size > 1000) this.cache.delete(this.cache.keys().next().value);
     return {

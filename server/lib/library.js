@@ -82,6 +82,21 @@ export function rebalanceFairQueue(items, { currentRequester, currentRequesterKe
   return result;
 }
 
+/** Restore the queue's original arrival order when fair-queue mode is disabled. */
+export function orderQueueByArrival(items) {
+  if (!Array.isArray(items) || items.length <= 1) return items;
+  return items
+    .map((item, index) => ({ item, index, addedAt: Date.parse(item?.addedAt || "") }))
+    .sort((left, right) => {
+      const leftValid = Number.isFinite(left.addedAt);
+      const rightValid = Number.isFinite(right.addedAt);
+      if (leftValid && rightValid && left.addedAt !== right.addedAt) return left.addedAt - right.addedAt;
+      if (leftValid !== rightValid) return leftValid ? -1 : 1;
+      return left.index - right.index;
+    })
+    .map(({ item }) => item);
+}
+
 export function addToQueue(draft, track, options = {}) {
   if (draft.queue.length >= 100) {
     throw new AppError(409, "queue_full", "คิวเต็มแล้ว (สูงสุด 100 เพลง)");

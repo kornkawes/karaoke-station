@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { rebalanceFairQueue } from "../../server/lib/library.js";
+import { orderQueueByArrival, rebalanceFairQueue } from "../../server/lib/library.js";
 import { YouTubeService } from "../../server/lib/youtube.js";
 
 describe("KaraokeStation Enhancements", () => {
@@ -36,6 +36,16 @@ describe("KaraokeStation Enhancements", () => {
 
       expect(rebalanceFairQueue(items, { currentRequesterKey: "controller-a" }).map((item) => item.id))
         .toEqual(["bob-1", "alice-2", "alice-3"]);
+    });
+
+    it("restores arrival order when fair queue mode is turned off", () => {
+      const items = [
+        { id: "late", requestedBy: "Bob", addedAt: "2026-09-11T10:00:02.000Z" },
+        { id: "first", requestedBy: "Alice", addedAt: "2026-09-11T10:00:00.000Z" },
+        { id: "middle", requestedBy: "Charlie", addedAt: "2026-09-11T10:00:01.000Z" }
+      ];
+
+      expect(orderQueueByArrival(items).map((item) => item.id)).toEqual(["first", "middle", "late"]);
     });
   });
 

@@ -43,6 +43,7 @@ export function youtubePlayerVars(shouldAutoplay, origin = location.origin) {
     fs: 0,
     playsinline: 1,
     rel: 0,
+    cc_load_policy: 0,
     iv_load_policy: 3,
     origin
   };
@@ -86,7 +87,7 @@ function YouTubePlayer({ player, onPlayer, onEnd, onError }) {
       if (cancelled || !rootRef.current) return;
       youtubeRef.current?.destroy?.();
       youtubeRef.current = new window.YT.Player(rootRef.current, { videoId: track.videoId, playerVars: youtubePlayerVars(player.playing), events: {
-        onReady: ({ target }) => { target.setVolume(player.volume); if (player.playing) target.playVideo(); },
+        onReady: ({ target }) => { target.unloadModule?.("captions"); target.setVolume(player.volume); if (player.playing) target.playVideo(); },
         onStateChange: ({ data, target }) => {
           const playing = data === window.YT.PlayerState.PLAYING;
           if ([window.YT.PlayerState.PLAYING, window.YT.PlayerState.PAUSED].includes(data)) onPlayer({ playing });

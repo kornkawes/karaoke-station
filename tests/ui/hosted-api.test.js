@@ -117,6 +117,22 @@ describe("request shaping", () => {
     expect(JSON.parse(options.body)).toEqual({ fairQueue: true });
   });
 
+  it("requests a later search page only with its opaque page token", async () => {
+    const spy = mockFetch(200, { data: { results: [], nextPageToken: "PAGE_THREE" } });
+    await hostedApi.search("ABCD2345", "controller-token", "เพลงไทย", "both", {
+      limit: 15,
+      pageToken: "PAGE_TWO"
+    });
+
+    const [url, options] = spy.mock.calls[0];
+    const parsed = new URL(url, "https://karaoke.example");
+    expect(parsed.pathname).toBe("/api/v1/rooms/ABCD2345/search");
+    expect(parsed.searchParams.get("q")).toBe("เพลงไทย");
+    expect(parsed.searchParams.get("limit")).toBe("15");
+    expect(parsed.searchParams.get("pageToken")).toBe("PAGE_TWO");
+    expect(options.headers.Authorization).toBe("Bearer controller-token");
+  });
+
   it("sends a bearer-authenticated playback patch without putting the token in the URL", async () => {
     const spy = mockFetch(200, {
       data: { revision: 5, playback: { playing: false, volume: 35, muted: true } }

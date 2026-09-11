@@ -197,11 +197,13 @@ function HostedPlayer({ track, onEnded, onError, onExitFullscreen, isFullscreen,
           fs: 0,
           playsinline: 1,
           rel: 0,
+          cc_load_policy: 0,
           iv_load_policy: 3,
           origin: window.location.origin
         },
         events: {
           onReady: ({ target }) => {
+            target.unloadModule?.("captions");
             const next = playbackRef.current;
             target.setVolume(next.volume);
             if (next.muted) target.mute();

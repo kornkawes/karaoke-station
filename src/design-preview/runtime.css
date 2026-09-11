@@ -634,3 +634,146 @@
   .preview-functional-app .title-marquee.is-long .title-marquee-track{animation:none}
   .preview-functional-app .title-marquee.is-long .title-marquee-track{max-width:100%;overflow:hidden;text-overflow:ellipsis}
 }
+
+/* Responsive app shell --------------------------------------------------
+   The live remote is an application surface, so it must fill the viewport at
+   every aspect ratio. The old preview frame intentionally capped the phone at
+   900px, which left the document background exposed below the nav on tall
+   devices and showed the demo context beside the app on tablets/desktops. */
+.preview-functional-app{
+  display:block;
+  width:100%;
+  height:100vh;
+  height:100dvh;
+  min-height:100vh;
+  min-height:100dvh;
+  overflow:hidden;
+  background:var(--ink);
+}
+.preview-functional-app .phone{
+  width:100%;
+  max-width:none;
+  height:100%;
+  min-height:100%;
+  max-height:none;
+  margin:0;
+  border:0;
+  border-radius:0;
+  box-shadow:none;
+}
+.preview-functional-app .phone-content{
+  width:100%;
+  max-width:1120px;
+  margin-inline:auto;
+  padding-inline:clamp(18px,4vw,52px);
+  overscroll-behavior-y:contain;
+  -webkit-overflow-scrolling:touch;
+}
+.preview-functional-app .search-load-more{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  min-height:54px;
+  padding:14px 8px;
+  color:var(--muted);
+  font-size:11px;
+  text-align:center;
+  list-style:none;
+}
+.preview-functional-app .search-load-more .spin{color:var(--lime)}
+.preview-functional-app .remote-sheet{
+  width:min(560px,calc(100% - 24px));
+}
+.preview-functional-app .join-sheet{width:min(560px,calc(100% - 24px))}
+.preview-functional-app .phone-header,
+.preview-functional-app .now-dock,
+.preview-functional-app .bottom-nav{width:100%}
+
+@media (min-width:781px){
+  .preview-functional-app .phone-header{padding-inline:clamp(24px,4vw,52px)}
+  .preview-functional-app .now-dock{padding-inline:clamp(24px,4vw,52px)}
+  .preview-functional-app .song-row{grid-template-columns:76px minmax(0,1fr) 96px;min-height:116px;gap:16px}
+  .preview-functional-app .song-row .cover{width:76px}
+  .preview-functional-app .song-info strong{font-size:17px}
+  .preview-functional-app .song-actions button{width:46px;height:46px}
+}
+
+@media (orientation:landscape) and (max-height:620px){
+  .preview-functional-app .phone-header{flex-basis:72px;min-height:72px;height:72px;padding-top:10px;padding-bottom:8px}
+  .preview-functional-app .phone-content{padding-top:14px}
+  .preview-functional-app .now-dock{flex-basis:64px;min-height:64px;height:64px}
+  .preview-functional-app .bottom-nav{flex-basis:62px;min-height:62px;height:62px}
+}
+
+@media (min-width:1200px){
+  .preview-functional-app .phone-content{padding-inline:0}
+}
+
+@media(prefers-reduced-motion:reduce){
+  .preview-functional-app .search-load-more .spin{animation:none}
+}
+
+/* Host reset control -----------------------------------------------------
+   The lightning action shares the fullscreen control's floating rail. Keep
+   enough breathing room in the HUD status column so the controls never cover
+   the LIVE indicator at tablet or short desktop widths. */
+.preview-functional-host .display-controls{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:8px;
+}
+.preview-functional-host .display-controls .room-reset-control,
+.preview-functional-host .display-controls .fullscreen-control{
+  display:grid;
+  place-items:center;
+  box-sizing:border-box;
+  line-height:0;
+  width:42px;
+  min-width:42px;
+  height:42px;
+  min-height:42px;
+  padding:0;
+  border:1px solid rgba(245,241,232,.3);
+  border-radius:50%;
+  background:rgba(5,6,7,.28);
+  color:var(--paper);
+  cursor:pointer;
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+  transition:color .18s ease,border-color .18s ease,background .18s ease,transform .18s ease;
+}
+.preview-functional-host .room-reset-control > svg{
+  display:block;
+  place-self:center;
+  width:17px;
+  height:17px;
+  margin:0;
+  flex:0 0 17px;
+  color:var(--lime);
+  stroke-width:1.9;
+}
+.preview-functional-host .room-reset-control:hover,
+.preview-functional-host .fullscreen-control:hover{
+  border-color:var(--lime);
+  background:rgba(216,251,104,.1);
+  transform:translateY(-1px);
+}
+.preview-functional-host .room-reset-control:focus-visible,
+.preview-functional-host .fullscreen-control:focus-visible{
+  outline:2px solid var(--lime);
+  outline-offset:3px;
+}
+.preview-functional-host .room-reset-control:disabled{opacity:.45;cursor:wait;transform:none}
+.preview-functional-host .system-track-status{margin-right:104px}
+
+@media(max-width:900px){
+  .preview-functional-host .system-track-status{margin-right:96px}
+}
+@media(max-width:700px){
+  .preview-functional-host .system-track-status{margin-right:92px}
+}
+@media(max-width:520px){
+  .preview-functional-host .system-track-status{margin-right:0}
+}

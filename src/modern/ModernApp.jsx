@@ -183,11 +183,13 @@ function ModernPlayer({ track, onEnded, onError, containerRef, volume = 75, onPr
           fs: 0,
           playsinline: 1,
           rel: 0,
+          cc_load_policy: 0,
           iv_load_policy: 3,
           origin: window.location.origin
         },
         events: {
           onReady: ({ target }) => {
+            target.unloadModule?.("captions");
             target.setVolume(volumeRef.current);
             target.playVideo();
           },

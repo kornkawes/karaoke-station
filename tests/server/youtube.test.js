@@ -169,6 +169,61 @@ describe("YouTubeService", () => {
     expect(new URL(fetchImpl.mock.calls[1][0]).searchParams.get("part")).toContain("statistics");
   });
 
+  it("passes a YouTube page token for the next 15-result page and caches pages separately", async () => {
+    const firstId = "aaaaaaaaaaa";
+    const secondId = "bbbbbbbbbbb";
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [{ id: { videoId: firstId } }],
+        nextPageToken: "PAGE_TWO"
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [{
+          id: firstId,
+          status: { embeddable: true, privacyStatus: "public" },
+          snippet: { title: "เพลงหน้าแรก Karaoke", channelTitle: "A" },
+          contentDetails: { duration: "PT3M" }
+        }]
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [{ id: { videoId: secondId } }],
+        nextPageToken: "PAGE_THREE"
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [{
+          id: secondId,
+          status: { embeddable: true, privacyStatus: "public" },
+          snippet: { title: "เพลงหน้าสอง Karaoke", channelTitle: "B" },
+          contentDetails: { duration: "PT3M" }
+        }]
+      }), { status: 200 }));
+    const service = new YouTubeService({ fetchImpl, getApiKey: () => "test-key" });
+
+    const first = await service.search({ query: "แบ่งหน้า", mode: "both", maxResults: 15 });
+    const second = await service.search({
+      query: "แบ่งหน้า",
+      mode: "both",
+      maxResults: 15,
+      pageToken: first.nextPageToken
+    });
+
+    expect(first.results.map((item) => item.videoId)).toEqual([firstId]);
+    expect(first.nextPageToken).toBe("PAGE_TWO");
+    expect(second.results.map((item) => item.videoId)).toEqual([secondId]);
+    expect(second.nextPageToken).toBe("PAGE_THREE");
+    expect(new URL(fetchImpl.mock.calls[2][0]).searchParams.get("pageToken")).toBe("PAGE_TWO");
+    expect(await service.search({ query: "แบ่งหน้า", mode: "both", pageToken: "PAGE_TWO" })).toMatchObject({ cached: true });
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+
+  it("rejects malformed or oversized page tokens before contacting YouTube", async () => {
+    const fetchImpl = vi.fn();
+    const service = new YouTubeService({ fetchImpl, getApiKey: () => "test-key" });
+    await expect(service.search({ query: "เพลง", pageToken: "../secret" })).rejects.toMatchObject({ code: "invalid_search_page" });
+    await expect(service.search({ query: "เพลง", pageToken: "a".repeat(257) })).rejects.toMatchObject({ code: "invalid_search_page" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("maps quota failures without exposing upstream payloads", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       error: { errors: [{ reason: "quotaExceeded" }] }

@@ -5,7 +5,10 @@ const port = 43180;
 export default defineConfig({
   testDir: "./tests/e2e",
   testMatch: /hosted.*\.spec\.js/,
-  timeout: 30_000,
+  // Hosted preview covers two pages, several responsive viewports and a
+  // deliberate Host reload. Keep the per-test budget above slower CI/browser
+  // startup without changing the individual assertion timeout.
+  timeout: 60_000,
   fullyParallel: false,
   workers: 1,
   reporter: "list",
