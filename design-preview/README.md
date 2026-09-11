@@ -24,7 +24,7 @@ Host เป็นจอแสดงผลอย่างเดียว: ภา�
 - ซิงก์เฉพาะแท็บใน browser เดียวกันผ่าน localStorage/BroadcastChannel โดยทดสอบ file:// บน Chrome; ไม่ใช่การซิงก์มือถือจริงกับทีวี
 - การค้นหาใช้ชุดเพลงตัวอย่าง ส่วน URL ที่ไม่รู้จักจะแจ้งว่าไม่เชื่อม YouTube; `youtu.be/after-hours-demo` ใช้ลอง flow ตัวอย่างได้โดยไม่ส่งเครือข่าย
 - storage ที่ถูกปิดใช้ memory ชั่วคราวแทน การทำงานหลายคนพร้อมกันยังไม่ใช่ server revision/conflict handling ของแอปจริง
-- ภาพ `assets/stage.png` สร้างด้วย built-in imagegen มีบันทึก prompt ใน `assets/IMAGE-NOTE.md`
+- ภาพ `assets/kavaoke-family-home.png` สร้างด้วย built-in imagegen มีบันทึก prompt ใน `assets/IMAGE-NOTE.md`
 - source แอปจริงใน `src/` และ `server/` ไม่ได้เปลี่ยนในงานนี้
 
 ## การตรวจ

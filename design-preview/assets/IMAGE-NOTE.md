@@ -1,9 +1,10 @@
 # ภาพประกอบพรีวิว
 
-- ไฟล์: `stage.png`
-- สร้างด้วย built-in `imagegen` สำหรับตัวอย่าง UI นี้ เป็นภาพนิ่งประกอบ ไม่ใช่ภาพจากวิดีโอที่กำลังเล่นจริง
+- ไฟล์หลัก: `kavaoke-family-home.png`
+- ไฟล์เดิม: `stage.png` (เก็บไว้สำหรับอ้างอิง/rollback)
+- สร้างด้วย built-in `imagegen` สำหรับฉาก Host ของ KAVAOKE เป็นภาพนิ่งประกอบ ไม่ใช่ภาพจากวิดีโอที่กำลังเล่นจริง
 - ต้นฉบับเก็บใน Codex generated images และคัดลอกเข้ามาในโปรเจกต์แล้ว
 
-Prompt:
+Prompt ของไฟล์หลัก:
 
-> Create a single cinematic photographic still for a karaoke application's video-stage preview. Landscape 16:9 composition, no text, no typography, no logos, no interface. A quiet late-night live music stage seen from the audience, the silhouette of a single singer with a microphone slightly right of center, fine atmospheric haze, dramatic warm amber spotlight from upper right, dim olive-lime rim light and rich charcoal blacks. Vintage film grain, authentic 35mm concert photography, restrained colors, evocative and sophisticated music editorial. Plenty of dark negative space on the left and lower third for UI captions that will be added separately in HTML. Not neon cyberpunk, no bright pink or purple. Full bleed photograph.
+> Wide 16:9 cinematic lifestyle photograph for a karaoke Host display: a warm, lived-in family living room seen from behind the sofa, a family of four facing a wall-mounted TV and singing together with handheld microphones, the TV centered horizontally, only the top of the sofa and pillows visible at the bottom, and a modern dimensional wall-mounted light sign above the TV reading exactly “KAVAOKE” in bold contemporary letters followed by smaller handwritten “station” script. Warm amber and soft teal practical lighting, cozy homelike evening mood, no platform UI, no subtitles, no logos, no watermark.

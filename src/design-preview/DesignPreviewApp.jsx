@@ -45,7 +45,7 @@ import {
 } from "../lib/hosted-api";
 import { loadYouTubeIframeApi } from "../lib/youtube";
 import { formatIdleCountdown } from "../lib/idle-session";
-import stageImage from "../../design-preview/assets/stage.png";
+import stageImage from "../../design-preview/assets/kavaoke-family-home.png";
 import {
   applyPreviewRoomView,
   emptyPreviewRoom,
@@ -1190,7 +1190,7 @@ function PreviewController({ session, onRevoked }) {
                 </div>
               </>
             )}
-            {sheet === "share" && <><p className="eyebrow">INVITATION · LIVE</p><h2 id="remoteSheetTitle">ชวนเพื่อนเข้าห้อง</h2><p className="sheet-subtitle"><RoomIcon size={12} /> {session.roomId} · ลิงก์นี้มี join token ใน fragment ที่ไม่ถูกส่งไปกับ request</p><label className="copy-field">ลิงก์เข้าร่วม<input readOnly value={partyJoinUrlFor(session.roomId, session.joinToken)} /></label><button type="button" className="sheet-action" onClick={shareRoom}><Copy size={16} /> คัดลอก / แชร์ลิงก์</button></>}
+            {sheet === "share" && <><p className="eyebrow">INVITATION · LIVE</p><h2 id="remoteSheetTitle">ชวนเพื่อนเข้าห้อง</h2><p className="sheet-subtitle share-room-id"><RoomIcon size={12} /><span>{session.roomId}</span></p><label className="copy-field">ลิงก์เข้าร่วม<input readOnly value={partyJoinUrlFor(session.roomId, session.joinToken)} /></label><button type="button" className="sheet-action" onClick={shareRoom}><Copy size={16} /> คัดลอก / แชร์ลิงก์</button></>}
             {sheet === "settings" && <><p className="eyebrow"><RoomIcon size={12} /> SESSION · LIVE</p><h2 id="remoteSheetTitle">ข้อมูลห้อง</h2><p className="sheet-subtitle">คุณเข้าร่วมในชื่อ <strong>{session.displayName}</strong></p><div className="session-info"><span><RoomIcon size={12} /></span><strong>{session.roomId}</strong><span>สถานะ</span><strong>{connected ? "เชื่อมต่อแล้ว" : "กำลังเชื่อมต่อ"}</strong></div><button type="button" className="sheet-danger" onClick={() => { clearSession(CONTROLLER_STORAGE_KEY); onRevoked(); }}>ออกจากห้องนี้</button></>}
           </section>
         </div>

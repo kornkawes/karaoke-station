@@ -323,6 +323,14 @@
   border: 0;
 }
 
+/* The Host screen is driven by the mobile remote. Blocking pointer hover
+   keeps YouTube's transient chrome from appearing over the karaoke picture. */
+.m-video-stage-mount,
+.m-video-stage-mount iframe {
+  pointer-events: none;
+  user-select: none;
+}
+
 .m-video-stage-mount:empty {
   display: none;
 }

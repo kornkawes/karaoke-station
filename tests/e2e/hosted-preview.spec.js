@@ -17,6 +17,7 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(page.getByRole("button", { name: "สร้างห้องใหม่" })).toBeVisible();
   await expect(page.locator(".invite-gate .host-actions button")).toHaveText("สร้างห้องใหม่");
   await expect(page.locator(".invite-gate .host-actions button svg")).toHaveCount(0);
+  await expect(page.locator(".stage-media")).toHaveAttribute("src", /kavaoke-family-home/);
   await expect(page.locator(".invite-brand > span")).toHaveCount(0);
   await expect.poll(() => page.locator(".invite-brand").evaluate((node) => getComputedStyle(node, "::after").display)).toBe("none");
   await expect(page.getByText("พร้อมใช้งาน")).toHaveCount(0);
@@ -66,6 +67,17 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(phone.locator(".phone-header .room-icon")).toHaveCount(1);
   await expect(phone.locator(".phone-header .room-icon")).toHaveCSS("width", "14px");
   await expect(phone.locator(".desktop-context")).toHaveCount(0);
+  await phone.getByRole("button", { name: "เปิดคำเชิญห้อง" }).click();
+  await expect(phone.locator(".share-room-id")).toHaveText(host.roomId);
+  await expect(phone.locator(".share-room-id")).not.toContainText("join token");
+  await expect(phone.locator(".share-room-id")).toHaveCSS("flex-wrap", "nowrap");
+  const shareRoomAlignment = await phone.locator(".share-room-id").evaluate((node) => {
+    const icon = node.querySelector(".room-icon").getBoundingClientRect();
+    const code = node.querySelector("span").getBoundingClientRect();
+    return Math.abs((icon.top + icon.height / 2) - (code.top + code.height / 2));
+  });
+  expect(shareRoomAlignment).toBeLessThanOrEqual(1);
+  await phone.locator(".sheet-close").click();
   await expect(phone.locator(".search-box input")).toBeEnabled();
   await expect(phone.locator(".mobile-hero")).toHaveCount(0);
   await expect(phone.locator(".mobile-tip")).toContainText("Tips");
@@ -79,7 +91,10 @@ test("approved preview is the default live display and controller", async ({ pag
 
   // A controller presence switches the Host from the invite lobby to the
   // presentation HUD. The QR leaves the DOM after the first person joins.
-  await expect(page.locator('.display-stage[data-display-mode="presentation"]')).toBeVisible();
+  // Socket.IO startup can take a bounded reconnect window on a cold test
+  // worker; wait for the same lifecycle transition without loosening any
+  // assertions about the resulting HUD.
+  await expect(page.locator('.display-stage[data-display-mode="presentation"]')).toBeVisible({ timeout: 15_000 });
   await expect(page.locator(".invite-gate")).toHaveCount(0);
   await expect(page.locator(".real-qr")).toHaveCount(0);
   await expect(page.locator(".system-track-bar")).toBeVisible();
@@ -150,6 +165,7 @@ test("approved preview is the default live display and controller", async ({ pag
   expect(queuedNext.ok()).toBeTruthy();
 
   await expect(page.locator(".preview-video-layer")).toHaveAttribute("aria-label", "กำลังเล่น เพลงหน้าตา Preview");
+  await expect(page.locator(".preview-video-mount")).toHaveCSS("pointer-events", "none");
   await expect(page.locator(".system-track-bar")).toContainText("เพลงหน้าตา Preview");
   await expect(page.locator(".system-track-bar")).toContainText("QA");
   await expect(page.locator(".system-track-kicker-label")).toHaveText("NOW PLAYING");

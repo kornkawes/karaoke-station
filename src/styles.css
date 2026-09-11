@@ -127,6 +127,11 @@ a:focus-visible {
   width: 100%;
   border: 0;
 }
+.tv-video iframe {
+  /* Controls live in the remote; suppress YouTube hover chrome on the Host. */
+  pointer-events: none;
+  user-select: none;
+}
 .empty-state {
   min-height: 180px;
   padding: 28px;

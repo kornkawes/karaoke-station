@@ -68,6 +68,14 @@
   display: block;
 }
 
+/* Host playback is controlled from the mobile remote; keep YouTube's
+   hover-only share/watch-later/branding chrome out of the display. */
+.hosted-video-mount,
+.hosted-video-mount iframe {
+  pointer-events: none;
+  user-select: none;
+}
+
 .hosted-video .empty-state {
   position: relative;
   z-index: 1;
