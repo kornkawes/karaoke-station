@@ -29,7 +29,8 @@ export default defineConfig({
       PORT: String(port),
       // Same-origin only; the browser sends no Origin for these navigations.
       ALLOWED_ORIGINS: `http://127.0.0.1:${port}`,
-      YOUTUBE_API_KEY: ""
+      YOUTUBE_API_KEY: "",
+      CREATE_ROOM_RATE_LIMIT: "100"
     }
   }
 });

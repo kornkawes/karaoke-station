@@ -227,9 +227,18 @@ export async function createHostedApplication({
     }
   }));
 
+  // The hosted browser suite provisions several isolated rooms in one run.
+  // Keep the production default strict, while allowing the test harness to use
+  // a bounded higher ceiling without changing the public deployment policy.
+  const configuredCreateRoomLimit = Number(env.CREATE_ROOM_RATE_LIMIT);
+  const createRoomLimit = Number.isSafeInteger(configuredCreateRoomLimit)
+    && configuredCreateRoomLimit > 0
+    && configuredCreateRoomLimit <= 100
+    ? configuredCreateRoomLimit
+    : 20;
   const createRoomLimiter = rateLimit({
     windowMs: 60 * 60_000,
-    limit: 20,
+    limit: createRoomLimit,
     standardHeaders: "draft-8",
     legacyHeaders: false,
     handler: (_request, _response, next) => {
