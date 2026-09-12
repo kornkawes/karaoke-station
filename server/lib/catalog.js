@@ -1,4 +1,5 @@
 import { createSign } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { AppError } from "./errors.js";
 import { createAbortController, defaultFetch } from "./compat.js";
 import { youtubeIdSchema } from "./schemas.js";
@@ -209,7 +210,19 @@ function base64Url(value) {
 
 function serviceAccountFromEnv(env) {
   let fromJson = {};
-  const json = cleanText(env.GOOGLE_SERVICE_ACCOUNT_JSON, 50_000);
+  const configuredJsonFile = cleanText(
+    env.GOOGLE_SERVICE_ACCOUNT_JSON_FILE ?? env.GOOGLE_SERVICE_ACCOUNT_FILE,
+    1_000
+  );
+  let fileJson = "";
+  if (configuredJsonFile) {
+    try {
+      fileJson = readFileSync(configuredJsonFile, "utf8");
+    } catch {
+      // A missing/unreadable optional secret file leaves the source unconfigured.
+    }
+  }
+  const json = cleanText(env.GOOGLE_SERVICE_ACCOUNT_JSON ?? fileJson, 50_000);
   if (json) {
     try {
       fromJson = JSON.parse(json);

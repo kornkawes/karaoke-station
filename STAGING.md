@@ -5,7 +5,7 @@
 - Host: `/display` สร้างห้องและแสดง QR สำหรับมือถือ
 - มือถือ: สแกน QR ใส่ชื่อ แล้วค้นหา/วางลิงก์ YouTube เพิ่มเพลง จัดคิว เล่นทันที ข้ามเพลง และเปิดประวัติหรือรายการโปรด
 - เล่น/พัก ระดับเสียง ปิดเสียง และผลัดกันร้องควบคุมจากมือถือ โดย Host รับสถานะผ่าน Socket.IO
-- ช่องค้นหามี autocomplete จาก catalog กลาง (ถ้าตั้ง `GOOGLE_SHEETS_ID` และ service-account secrets); การพิมพ์ไม่เรียก YouTube search และกดแถวจะเข้าคิวทันที
+- ช่องค้นหามี autocomplete จาก catalog กลาง (ถ้าตั้ง `GOOGLE_SHEETS_ID` และ service-account secrets หรือ Render Secret File); การพิมพ์ไม่เรียก YouTube search และกดแถวจะเข้าคิวทันที
 - ปุ่มผลัดกันร้องใช้ track 36×22px และพื้นที่กดอย่างน้อย 44px
 - พรีวิว React รุ่นก่อนยังเปิดเทียบได้ที่ `/display?ui=preview`; HTML ตัวอย่างอยู่ใน `design-preview/`
 

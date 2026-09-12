@@ -44,6 +44,7 @@ npm start
 | `GOOGLE_SHEETS_ID` | สำหรับ catalog | Spreadsheet ส่วนตัวที่ใช้เป็นคลังเพลงกลาง; ไม่ตั้งค่าได้และ dropdown จะว่าง |
 | `GOOGLE_SHEETS_RANGE` | ไม่ (default `Catalog!A:I`) | ช่วงข้อมูลที่มีหัวคอลัมน์ `artist`, `title`, `videoId` หรือ `youtubeUrl`, `aliases` ได้ |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | เมื่อเปิด catalog | JSON service account ฝั่ง server; ใช้แทนคู่ email/private key ได้ |
+| `GOOGLE_SERVICE_ACCOUNT_JSON_FILE` | เมื่อเปิด catalog | path ของไฟล์ JSON service account ที่ secret manager mount ให้ server (เช่น Render `/etc/secrets/kavaoke-catalog.json`); ใช้แทนค่า JSON ตรง ๆ ได้ |
 | `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` | เมื่อเปิด catalog | รูปแบบแยกสำหรับ secret manager; ต้องแชร์ Sheet ให้ email นี้อ่าน/เขียนได้ |
 | `GOOGLE_SHEETS_CACHE_TTL_MS` | ไม่ (default 300000) | อายุ cache ฝั่ง server; การพิมพ์ไม่เรียก Google Sheets โดยตรง |
 | `PORT` | ไม่ (default 8080) | provider ส่วนใหญ่ inject ให้เอง |

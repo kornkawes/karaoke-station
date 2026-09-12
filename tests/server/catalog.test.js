@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   CatalogService,
   createCatalogSourceFromEnv,
@@ -170,6 +173,28 @@ describe("CatalogService", () => {
       suggestions: []
     });
     await expect(service.remember({ videoId: "dQw4w9WgXcQ", title: "Song" })).resolves.toBe(false);
+  });
+
+  it("loads service account credentials from a mounted secret file", () => {
+    const directory = mkdtempSync(join(tmpdir(), "kavaoke-catalog-"));
+    const secretPath = join(directory, "service-account.json");
+    writeFileSync(secretPath, JSON.stringify({
+      client_email: "catalog@example.iam.gserviceaccount.com",
+      private_key: "-----BEGIN PRIVATE KEY-----\\nunit-test\\n-----END PRIVATE KEY-----"
+    }));
+
+    try {
+      const source = createCatalogSourceFromEnv({
+        GOOGLE_SHEETS_ID: "sheet-id",
+        GOOGLE_SERVICE_ACCOUNT_JSON_FILE: secretPath
+      });
+      expect(source?.credentials).toEqual({
+        email: "catalog@example.iam.gserviceaccount.com",
+        privateKey: "-----BEGIN PRIVATE KEY-----\nunit-test\n-----END PRIVATE KEY-----"
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("validates suggestion query and limit at the boundary", async () => {
