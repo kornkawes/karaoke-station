@@ -41,6 +41,11 @@ npm start
 | ตัวแปร | จำเป็น | ความหมาย |
 |---|---|---|
 | `YOUTUBE_API_KEY` | สำหรับ search | อยู่ฝั่ง server เท่านั้น ไม่เคยส่งถึง browser; ถ้าไม่ตั้ง search จะคืน `503 search_unavailable` แบบไม่บอกรายละเอียดระบบ |
+| `GOOGLE_SHEETS_ID` | สำหรับ catalog | Spreadsheet ส่วนตัวที่ใช้เป็นคลังเพลงกลาง; ไม่ตั้งค่าได้และ dropdown จะว่าง |
+| `GOOGLE_SHEETS_RANGE` | ไม่ (default `Catalog!A:I`) | ช่วงข้อมูลที่มีหัวคอลัมน์ `artist`, `title`, `videoId` หรือ `youtubeUrl`, `aliases` ได้ |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | เมื่อเปิด catalog | JSON service account ฝั่ง server; ใช้แทนคู่ email/private key ได้ |
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` | เมื่อเปิด catalog | รูปแบบแยกสำหรับ secret manager; ต้องแชร์ Sheet ให้ email นี้อ่าน/เขียนได้ |
+| `GOOGLE_SHEETS_CACHE_TTL_MS` | ไม่ (default 300000) | อายุ cache ฝั่ง server; การพิมพ์ไม่เรียก Google Sheets โดยตรง |
 | `PORT` | ไม่ (default 8080) | provider ส่วนใหญ่ inject ให้เอง |
 | `ALLOWED_ORIGINS` | production | production origin แบบเป๊ะ คั่นด้วย comma ห้าม wildcard |
 | `TRUSTED_PROXY` | ไม่ | จำนวน proxy hop ที่เชื่อถือ; ไม่ตั้ง = ไม่เชื่อ proxy header เลย (ค่าปลอดภัย) |
@@ -82,6 +87,7 @@ Base path `/api/v1` envelope เหมือนเดิม (`{data}` / `{error:
 | POST | `/rooms/:roomId/join` | joinToken | คืน controllerToken |
 | GET | `/rooms/:roomId/queue` | host หรือ controller | |
 | GET | `/rooms/:roomId/search` | host หรือ controller | strict karaoke filter |
+| GET | `/rooms/:roomId/catalog/suggestions` | host หรือ controller | ค้นจาก cache ของ Google Sheet เท่านั้น; ไม่เรียก YouTube search |
 | POST | `/rooms/:roomId/queue` | host หรือ controller | controller ใช้ `playNow` ไม่ได้ |
 | DELETE | `/rooms/:roomId/queue/:itemId` | host หรือ controller | |
 | PATCH | `/rooms/:roomId/queue/reorder` | host หรือ controller | ต้องส่ง `revision` |

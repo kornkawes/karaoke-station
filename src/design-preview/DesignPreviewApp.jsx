@@ -177,6 +177,12 @@ function uniqueSearchResults(items) {
   });
 }
 
+export function normalizeCatalogSuggestions(data) {
+  return (data?.suggestions || [])
+    .map(normalizeTrack)
+    .filter((track) => track?.videoId && track?.title);
+}
+
 function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyPreviewRoom.playback }) {
   const mountRef = useRef(null);
   const playerRef = useRef(null);
@@ -765,6 +771,8 @@ function PreviewController({ session, onRevoked }) {
   const [connected, setConnected] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
+  const [catalogSuggestions, setCatalogSuggestions] = useState([]);
+  const [catalogPhase, setCatalogPhase] = useState("idle");
   const [phase, setPhase] = useState("idle");
   const [favorites, setFavorites] = useState(readFavorites);
   const [history, setHistory] = useState([]);
@@ -782,6 +790,7 @@ function PreviewController({ session, onRevoked }) {
   const playbackMutating = useRef(false);
   const volumeTimer = useRef(null);
   const searchRunRef = useRef(0);
+  const catalogRunRef = useRef(0);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -825,10 +834,49 @@ function PreviewController({ session, onRevoked }) {
     }
   }, [onRevoked]);
 
+  useEffect(() => {
+    const value = query.trim();
+    const catalogRun = catalogRunRef.current + 1;
+    catalogRunRef.current = catalogRun;
+
+    if (tab !== "search" || filter !== "all" || !value || isDirectYouTubeInput(value)) {
+      setCatalogSuggestions([]);
+      setCatalogPhase("idle");
+      return undefined;
+    }
+
+    setCatalogSuggestions([]);
+    setCatalogPhase("loading");
+    let active = true;
+    const timer = window.setTimeout(() => {
+      hostedApi.catalogSuggestions(session.roomId, session.token, value)
+        .then((data) => {
+          if (!active || catalogRun !== catalogRunRef.current) return;
+          setCatalogSuggestions(normalizeCatalogSuggestions(data));
+          setCatalogPhase("done");
+        })
+        .catch((requestError) => {
+          if (!active || catalogRun !== catalogRunRef.current) return;
+          if (isSessionRevokedError(`${requestError.code} ${requestError.status}`)) onRevoked();
+          setCatalogSuggestions([]);
+          setCatalogPhase("error");
+        });
+    }, 180);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [filter, onRevoked, query, session.roomId, session.token, tab]);
+
   const doSearch = async (event) => {
     event?.preventDefault();
     const value = query.trim();
     if (!value) return;
+    if (catalogSuggestions[0]) {
+      await addCatalogSuggestion(catalogSuggestions[0]);
+      return;
+    }
     const searchRun = searchRunRef.current + 1;
     searchRunRef.current = searchRun;
     setPhase("loading");
@@ -853,10 +901,22 @@ function PreviewController({ session, onRevoked }) {
     try {
       await guard(() => hostedApi.addTrack(session.roomId, session.token, track));
       setNotice(`เพิ่ม “${track.title}” เข้าคิวแล้ว`);
+      return true;
     } catch (requestError) {
       setNotice(requestError.message || "เพิ่มเพลงไม่สำเร็จ");
+      return false;
     } finally {
       setBusy("");
+    }
+  };
+
+  const addCatalogSuggestion = async (track) => {
+    if (await add(track)) {
+      setQuery("");
+      setResults([]);
+      setCatalogSuggestions([]);
+      setCatalogPhase("idle");
+      setPhase("idle");
     }
   };
 
@@ -1014,10 +1074,42 @@ function PreviewController({ session, onRevoked }) {
         <section className="phone-content" aria-live="polite">
           {tab === "search" && (
             <>
-              <form className="search-box" onSubmit={doSearch}>
-                <input aria-label="ค้นหาชื่อเพลง ศิลปิน หรือลิงก์ YouTube" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ชื่อเพลง, ศิลปิน หรือ YouTube URL" autoComplete="off" />
-                <button type="submit" aria-label="ค้นหา"><Search size={20} /></button>
-              </form>
+              <div className="catalog-autocomplete">
+                <form className="search-box" onSubmit={doSearch}>
+                  <input
+                    aria-label="ค้นหาชื่อเพลง ศิลปิน หรือลิงก์ YouTube"
+                    aria-autocomplete="list"
+                    aria-controls={catalogSuggestions.length ? "catalog-suggestions" : undefined}
+                    aria-expanded={catalogSuggestions.length > 0}
+                    value={query}
+                    onChange={(event) => {
+                      setQuery(event.target.value);
+                      setCatalogSuggestions([]);
+                    }}
+                    placeholder="ชื่อเพลง, ศิลปิน หรือ YouTube URL"
+                    autoComplete="off"
+                  />
+                  <button type="submit" aria-label="ค้นหา"><Search size={20} /></button>
+                </form>
+                {catalogPhase === "loading" && <p className="catalog-loading" role="status"><LoaderCircle className="spin" size={15} /> กำลังค้นหาในคลังเพลง…</p>}
+                {catalogPhase === "error" && <p className="catalog-feedback" role="status">โหลดรายการแนะนำไม่สำเร็จ — กดค้นหาเพื่อค้นหา YouTube ได้</p>}
+                {catalogSuggestions.length > 0 && (
+                  <ul className="catalog-suggestions" id="catalog-suggestions" role="listbox" aria-label="เพลงแนะนำจากคลัง">
+                    {catalogSuggestions.map((track) => (
+                      <li key={track.videoId}>
+                        <button type="button" role="option" onClick={() => addCatalogSuggestion(track)} disabled={busy === `add:${track.videoId}`}>
+                          <span className="catalog-suggestion-copy">
+                            <strong>{track.title}</strong>
+                            <small>{track.artist || track.channelTitle || "ไม่ระบุศิลปิน"}</small>
+                          </span>
+                          <code>{track.videoId}</code>
+                          <Plus size={18} aria-hidden="true" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
               <div className="chips" aria-label="ตัวกรองเพลง">
                 <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>ทั้งหมด</button>
                 <button type="button" className={filter === "favorites" ? "active" : ""} onClick={() => setFilter("favorites")}>☆ เพลงโปรด ({favorites.length})</button>

@@ -106,6 +106,24 @@ describe("request shaping", () => {
     expect(JSON.parse(options.body).track.videoId).toBe("dQw4w9WgXcQ");
   });
 
+  it("does not forward catalog-only track fields to the strict queue schema", async () => {
+    const spy = mockFetch(201, { data: {} });
+    await hostedApi.addTrack("ABCD2345", "token", {
+      artist: "Palmy",
+      title: "คิดมาก",
+      videoId: "dQw4w9WgXcQ",
+      youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      aliases: ["คิดมาก พา ล์มมี่"]
+    });
+
+    const [, options] = spy.mock.calls[0];
+    expect(JSON.parse(options.body).track).toEqual({
+      videoId: "dQw4w9WgXcQ",
+      title: "คิดมาก",
+      channelTitle: ""
+    });
+  });
+
   it("sends a bearer-authenticated fair queue settings patch", async () => {
     const spy = mockFetch(200, { data: { revision: 4, settings: { fairQueue: true } } });
     await hostedApi.updateSettings("ABCD2345", "controller-token", { fairQueue: true });
@@ -142,6 +160,18 @@ describe("request shaping", () => {
     expect(parsed.searchParams.get("q")).toBe("เพลงไทย");
     expect(parsed.searchParams.get("limit")).toBe("15");
     expect(parsed.searchParams.get("pageToken")).toBe("PAGE_TWO");
+    expect(options.headers.Authorization).toBe("Bearer controller-token");
+  });
+
+  it("requests catalog suggestions from the room-scoped endpoint", async () => {
+    const spy = mockFetch(200, { data: { suggestions: [] } });
+    await hostedApi.catalogSuggestions("ABCD2345", "controller-token", "สายลม");
+
+    const [url, options] = spy.mock.calls[0];
+    const parsed = new URL(url, "https://karaoke.example");
+    expect(parsed.pathname).toBe("/api/v1/rooms/ABCD2345/catalog/suggestions");
+    expect(parsed.searchParams.get("q")).toBe("สายลม");
+    expect(parsed.searchParams.get("limit")).toBe("8");
     expect(options.headers.Authorization).toBe("Bearer controller-token");
   });
 

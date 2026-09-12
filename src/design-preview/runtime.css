@@ -769,3 +769,69 @@
 @media(max-width:520px){
   .preview-functional-host .system-track-status{margin-right:0}
 }
+
+/* Catalog autocomplete stays part of the mobile search flow. */
+.preview-functional-app .catalog-autocomplete{position:relative;z-index:2}
+.preview-functional-app .catalog-loading,
+.preview-functional-app .catalog-feedback{
+  min-height:24px;
+  margin:7px 2px 0;
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  color:var(--muted);
+  font-size:11px;
+  line-height:1.35;
+}
+.preview-functional-app .catalog-feedback{color:#ffcf83}
+.preview-functional-app .catalog-suggestions{
+  list-style:none;
+  margin:8px 0 0;
+  padding:5px;
+  display:grid;
+  gap:3px;
+  border:1px solid rgba(216,251,104,.28);
+  border-radius:14px;
+  background:rgba(28,31,33,.98);
+  box-shadow:0 14px 32px rgba(0,0,0,.32);
+  animation:catalog-suggestions-in .14s ease-out both;
+}
+.preview-functional-app .catalog-suggestions button{
+  width:100%;
+  min-height:54px;
+  padding:8px 9px 8px 12px;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto 20px;
+  align-items:center;
+  gap:8px;
+  border:0;
+  border-radius:10px;
+  background:transparent;
+  color:var(--paper);
+  text-align:left;
+  cursor:pointer;
+}
+.preview-functional-app .catalog-suggestions button:hover,
+.preview-functional-app .catalog-suggestions button:focus-visible{
+  background:rgba(216,251,104,.1);
+  outline:2px solid var(--lime);
+  outline-offset:1px;
+}
+.preview-functional-app .catalog-suggestions button:disabled{opacity:.55;cursor:wait}
+.preview-functional-app .catalog-suggestion-copy{min-width:0;display:grid;gap:2px}
+.preview-functional-app .catalog-suggestion-copy strong,
+.preview-functional-app .catalog-suggestion-copy small,
+.preview-functional-app .catalog-suggestions code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.preview-functional-app .catalog-suggestion-copy strong{font-size:13px;line-height:1.25}
+.preview-functional-app .catalog-suggestion-copy small,
+.preview-functional-app .catalog-suggestions code{color:var(--muted);font-size:11px;line-height:1.2}
+.preview-functional-app .catalog-suggestions code{max-width:94px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.preview-functional-app .catalog-suggestions svg{color:var(--lime)}
+@keyframes catalog-suggestions-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:380px){
+  .preview-functional-app .catalog-suggestions code{display:none}
+  .preview-functional-app .catalog-suggestions button{grid-template-columns:minmax(0,1fr) 20px}
+}
+@media(prefers-reduced-motion:reduce){
+  .preview-functional-app .catalog-suggestions{animation:none}
+}

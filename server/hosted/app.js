@@ -19,6 +19,7 @@ import {
   reorderQueue
 } from "../lib/library.js";
 import { LyricsService } from "../lib/lyrics.js";
+import { CatalogService, createCatalogSourceFromEnv } from "../lib/catalog.js";
 import {
   lyricSchema,
   fairQueuePatchSchema,
@@ -132,7 +133,10 @@ export async function createHostedApplication({
   fetchImpl = defaultFetch(),
   distDir = path.resolve("dist"),
   store = new MemoryRoomStore(),
-  now = () => Date.now()
+  now = () => Date.now(),
+  catalog = null,
+  catalogSource,
+  catalogTrackVerifier = null
 } = {}) {
   // RENDER_EXTERNAL_URL is injected by the host and is the service's own public URL,
   // so it is a safe last resort: it keeps the deployment same-origin rather than
@@ -148,6 +152,15 @@ export async function createHostedApplication({
     getApiKey: () => apiKey
   });
   const lyrics = new LyricsService({ fetchImpl });
+  const resolvedCatalogSource = catalogSource === undefined
+    ? createCatalogSourceFromEnv(env, { fetchImpl, now })
+    : catalogSource;
+  const catalogService = catalog ?? new CatalogService({
+    source: resolvedCatalogSource,
+    cacheTtlMs: env.GOOGLE_SHEETS_CACHE_TTL_MS,
+    now
+  });
+  const catalogLearningConfigured = Boolean(resolvedCatalogSource || catalog);
   const events = new EventEmitter();
   const app = express();
   const actionLimiter = new TokenRateLimiter({ limit: 30, windowMs: 60_000, now });
@@ -292,6 +305,41 @@ export async function createHostedApplication({
     return payload;
   }
 
+  async function verifiedCatalogTrack(track) {
+    // Every browser payload is untrusted, including the Host display: a valid-
+    // looking videoId/title can be forged even though the queue schema accepts it.
+    // Resolve the ID through the server-side YouTube service before persisting
+    // anything to the shared catalog.
+    if (typeof catalogTrackVerifier === "function") {
+      return catalogTrackVerifier(track);
+    }
+    return youtube.resolveVideo({ input: track.videoId });
+  }
+
+  function rememberCatalog(track, action) {
+    // A deployment without Sheet credentials intentionally keeps the catalog
+    // empty. Do not spend YouTube/oEmbed requests or emit noisy errors in that
+    // supported configuration.
+    if (!catalogLearningConfigured) return;
+    // Catalog writes are an optional learning side effect. A slow or unavailable
+    // Sheet must never delay or roll back a queue mutation that already succeeded.
+    void Promise.resolve()
+      .then(async () => {
+        const verified = await verifiedCatalogTrack(track);
+        if (verified) await catalogService.remember(verified);
+      })
+      .catch((error) => {
+        // An unresolvable/unavailable YouTube ID is normal user input, not a
+        // server fault. It must be skipped quietly; catalog append failures are
+        // still logged with a safe code so operators can diagnose Sheet issues.
+        if (String(error?.code || "").startsWith("youtube_")) return;
+        console.error("catalog auto-learn failed", {
+          action,
+          code: error?.code ?? "catalog_append_failed"
+        });
+      });
+  }
+
   function assertRevision(draft, revision) {
     if (draft.revision !== revision) {
       throw new AppError(409, "revision_conflict", "คิวมีการเปลี่ยนแปลง กรุณาโหลดคิวล่าสุด", {
@@ -316,6 +364,7 @@ export async function createHostedApplication({
       status: "ok",
       version: VERSION,
       searchConfigured: Boolean(apiKey),
+      catalogConfigured: catalogLearningConfigured,
       uptimeSeconds: Math.floor(process.uptime()),
       timestamp: new Date(now()).toISOString()
     });
@@ -450,6 +499,19 @@ export async function createHostedApplication({
   // ---- Search + suggestions (members only, so the key is never a public proxy) ---
 
   app.get(
+    "/api/v1/rooms/:roomId/catalog/suggestions",
+    memberAuth,
+    asyncRoute(async (request, response) => {
+      const result = await catalogService.listSuggestions({
+        query: request.query.q ?? "",
+        limit: request.query.limit ?? 8
+      });
+      store.recordActivity(request.room.roomId, now());
+      data(response, result);
+    })
+  );
+
+  app.get(
     "/api/v1/rooms/:roomId/search",
     memberAuth,
     searchLimiter,
@@ -534,6 +596,7 @@ export async function createHostedApplication({
         action: "add",
         track: mutation.result
       });
+      rememberCatalog(input.track, "queue_add");
       data(response, {
         revision: mutation.state.revision,
         item: publicTrack(mutation.result),
@@ -676,6 +739,7 @@ export async function createHostedApplication({
         action: "play_now",
         track: mutation.result.current
       });
+      rememberCatalog(mutation.result.current, "play_now");
       data(response, {
         revision: mutation.state.revision,
         ...publicMutationResult(mutation.result),
@@ -855,7 +919,7 @@ export async function createHostedApplication({
     app,
     store,
     events,
-    services: { youtube, lyrics },
+    services: { youtube, lyrics, catalog: catalogService },
     searchConfigured: Boolean(apiKey),
     allowedOrigins,
     roomView: liveRoomView
