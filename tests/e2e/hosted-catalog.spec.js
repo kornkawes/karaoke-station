@@ -53,12 +53,17 @@ test("catalog autocomplete queues a real track without a YouTube search", async 
 
   await phone.locator(".search-box input").fill("เพลงจากคลัง");
   await expect(phone.locator(".catalog-suggestions")).toBeVisible();
-  await expect(phone.locator(".catalog-suggestions button")).toContainText("เพลงจากคลังจริง");
-  await expect(phone.locator(".catalog-suggestions button")).toContainText("Mirrr");
+  await expect(phone.locator(".catalog-suggestions [role=option]")).toContainText("เพลงจากคลังจริง");
+  await expect(phone.locator(".catalog-suggestions [role=option]")).toContainText("Mirrr");
+  await expect(phone.locator(".catalog-suggestions code")).toHaveCount(0);
+  await expect(phone.getByRole("button", { name: "บันทึกเพลงโปรด" })).toBeVisible();
+  await expect(phone.getByRole("button", { name: /เพิ่ม เพลงจากคลังจริง เข้าคิว/ })).toBeVisible();
+  await phone.getByRole("button", { name: "บันทึกเพลงโปรด" }).click();
+  await expect(phone.getByRole("button", { name: "ลบจากเพลงโปรด" })).toBeVisible();
   expect(catalogRequests.length).toBeGreaterThanOrEqual(1);
   expect(searchRequests).toHaveLength(0);
 
-  await phone.locator(".catalog-suggestions button").click();
+  await phone.locator(".catalog-suggestions [role=option]").click();
   await expect(phone.locator(".search-box input")).toHaveValue("");
   await expect(phone.locator(".catalog-suggestions")).toHaveCount(0);
   await expect(phone.locator(".toast")).toContainText("เพิ่ม “เพลงจากคลังจริง” เข้าคิวแล้ว");
@@ -69,6 +74,76 @@ test("catalog autocomplete queues a real track without a YouTube search", async 
     headers: { Authorization: "Bearer " + JSON.parse(sessionStorage.getItem("karaoke.controllerSession")).token }
   }).then((response) => response.json()));
   expect(queue.data.current.videoId).toBe("dQw4w9WgXcQ");
+});
+
+test("submitting while catalog suggestions are visible still runs the YouTube search", async ({ page, context }) => {
+  await page.goto("/display");
+  const host = await expect.poll(() => page.evaluate(() => {
+    const value = sessionStorage.getItem("karaoke.hostSession");
+    return value ? JSON.parse(value) : null;
+  })).not.toBeNull().then(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("karaoke.hostSession"))));
+
+  const phone = await context.newPage();
+  await phone.setViewportSize({ width: 390, height: 844 });
+  const searchRequests = [];
+  await phone.route("**/api/v1/rooms/*/catalog/suggestions*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: { suggestions: [{ artist: "คลัง", title: "เพลงแนะนำ", videoId: "dQw4w9WgXcQ" }] } })
+    });
+  });
+  await phone.route("**/api/v1/rooms/*/search*", async (route) => {
+    searchRequests.push(new URL(route.request().url()));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: { results: [{ title: "ผลจาก API", videoId: "M7lc1UVf-VE", channelTitle: "API", badge: "Karaoke" }] } })
+    });
+  });
+
+  await phone.goto(host.joinPath);
+  await phone.getByLabel("ชื่อของคุณ").fill("มือถือ API");
+  await phone.getByRole("button", { name: "เข้าร่วมห้อง", exact: true }).click();
+  await expect(phone.locator(".search-box input")).toBeEnabled();
+  await phone.locator(".search-box input").fill("เพลงที่มีในคลัง");
+  await expect(phone.locator(".catalog-suggestions")).toBeVisible();
+  await phone.locator(".search-box button").click();
+  await expect.poll(() => searchRequests.length).toBe(1);
+  await expect(phone.locator(".song-row")).toContainText("ผลจาก API");
+  await expect(phone.locator(".catalog-suggestions")).toHaveCount(0);
+});
+
+test("catalog suggestions keep three visible rows and scroll the rest", async ({ page, context }) => {
+  await page.goto("/display");
+  const host = await expect.poll(() => page.evaluate(() => {
+    const value = sessionStorage.getItem("karaoke.hostSession");
+    return value ? JSON.parse(value) : null;
+  })).not.toBeNull().then(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("karaoke.hostSession"))));
+
+  const phone = await context.newPage();
+  await phone.setViewportSize({ width: 390, height: 844 });
+  await phone.route("**/api/v1/rooms/*/catalog/suggestions*", async (route) => {
+    const videoIds = ["dQw4w9WgXcQ", "M7lc1UVf-VE", "9bZkp7q19f0", "kJQP7kiw5Fk", "fJ9rUzIMcZQ"];
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: { suggestions: videoIds.map((videoId, index) => ({ artist: "คลัง", title: `เพลงแนะนำ ${index + 1}`, videoId })) } })
+    });
+  });
+
+  await phone.goto(host.joinPath);
+  await phone.getByLabel("ชื่อของคุณ").fill("มือถือ dropdown");
+  await phone.getByRole("button", { name: "เข้าร่วมห้อง", exact: true }).click();
+  await expect(phone.locator(".search-box input")).toBeEnabled();
+  await phone.locator(".search-box input").fill("เพลงแนะนำ");
+  await expect(phone.locator(".catalog-suggestions li")).toHaveCount(5);
+  const menu = await phone.locator(".catalog-suggestions").evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { maxHeight: style.maxHeight, clientHeight: node.clientHeight, scrollHeight: node.scrollHeight };
+  });
+  expect(menu.maxHeight).toBe("178px");
+  expect(menu.scrollHeight).toBeGreaterThan(menu.clientHeight);
 });
 
 test("catalog autocomplete falls back to YouTube search only when submitted without a row", async ({ page, context }) => {

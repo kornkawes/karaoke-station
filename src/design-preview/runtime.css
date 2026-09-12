@@ -790,20 +790,32 @@
   padding:5px;
   display:grid;
   gap:3px;
+  /* Three 54px rows plus the two 3px gaps and list padding; more rows scroll. */
+  max-height:178px;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
   border:1px solid rgba(216,251,104,.28);
   border-radius:14px;
   background:rgba(28,31,33,.98);
   box-shadow:0 14px 32px rgba(0,0,0,.32);
   animation:catalog-suggestions-in .14s ease-out both;
 }
-.preview-functional-app .catalog-suggestions button{
+.preview-functional-app .catalog-suggestion-row{
+  min-width:0;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:4px;
+  border-radius:10px;
+}
+.preview-functional-app .catalog-suggestion-select{
   width:100%;
   min-height:54px;
-  padding:8px 9px 8px 12px;
-  display:grid;
-  grid-template-columns:minmax(0,1fr) auto 20px;
+  min-width:0;
+  padding:8px 4px 8px 7px;
+  display:flex;
   align-items:center;
-  gap:8px;
   border:0;
   border-radius:10px;
   background:transparent;
@@ -811,27 +823,48 @@
   text-align:left;
   cursor:pointer;
 }
-.preview-functional-app .catalog-suggestions button:hover,
-.preview-functional-app .catalog-suggestions button:focus-visible{
+.preview-functional-app .catalog-suggestion-select:hover,
+.preview-functional-app .catalog-suggestion-select:focus-visible,
+.preview-functional-app .catalog-suggestion-row:focus-within{
   background:rgba(216,251,104,.1);
+}
+.preview-functional-app .catalog-suggestion-select:focus-visible,
+.preview-functional-app .catalog-suggestion-actions button:focus-visible{
   outline:2px solid var(--lime);
   outline-offset:1px;
 }
-.preview-functional-app .catalog-suggestions button:disabled{opacity:.55;cursor:wait}
+.preview-functional-app .catalog-suggestion-select:disabled,
+.preview-functional-app .catalog-suggestion-actions button:disabled{opacity:.55;cursor:wait}
 .preview-functional-app .catalog-suggestion-copy{min-width:0;display:grid;gap:2px}
 .preview-functional-app .catalog-suggestion-copy strong,
-.preview-functional-app .catalog-suggestion-copy small,
-.preview-functional-app .catalog-suggestions code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.preview-functional-app .catalog-suggestion-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .preview-functional-app .catalog-suggestion-copy strong{font-size:13px;line-height:1.25}
-.preview-functional-app .catalog-suggestion-copy small,
-.preview-functional-app .catalog-suggestions code{color:var(--muted);font-size:11px;line-height:1.2}
-.preview-functional-app .catalog-suggestions code{max-width:94px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-.preview-functional-app .catalog-suggestions svg{color:var(--lime)}
-@keyframes catalog-suggestions-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
-@media(max-width:380px){
-  .preview-functional-app .catalog-suggestions code{display:none}
-  .preview-functional-app .catalog-suggestions button{grid-template-columns:minmax(0,1fr) 20px}
+.preview-functional-app .catalog-suggestion-copy small{color:var(--muted);font-size:11px;line-height:1.2}
+.preview-functional-app .catalog-suggestion-actions{
+  display:flex;
+  align-items:center;
+  gap:3px;
+  padding-right:3px;
 }
+.preview-functional-app .catalog-suggestion-actions button{
+  width:34px;
+  height:34px;
+  min-width:34px;
+  padding:0;
+  display:grid;
+  place-items:center;
+  border:1px solid var(--line);
+  border-radius:9px;
+  background:var(--surface-2);
+  color:var(--muted);
+  line-height:1;
+  cursor:pointer;
+}
+.preview-functional-app .catalog-suggestion-actions button:hover{border-color:var(--lime);color:var(--lime);background:rgba(216,251,104,.1)}
+.preview-functional-app .catalog-suggestion-actions .catalog-suggestion-favorite.is-favorite{border-color:rgba(251,191,36,.55);color:#fbbf24}
+.preview-functional-app .catalog-suggestion-actions .catalog-suggestion-add{border-color:rgba(216,251,104,.3);color:var(--lime)}
+.preview-functional-app .catalog-suggestion-actions svg{display:block;margin:0}
+@keyframes catalog-suggestions-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
 @media(prefers-reduced-motion:reduce){
   .preview-functional-app .catalog-suggestions{animation:none}
 }

@@ -198,6 +198,7 @@ function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyPreviewR
   useEffect(() => {
     let cancelled = false;
     let ended = false;
+    let autoplayRetryTimer;
     setAutoplayBlocked(false);
     if (!track?.videoId || !mountRef.current) return undefined;
 
@@ -227,7 +228,15 @@ function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyPreviewR
             target.setVolume(next.volume);
             if (next.muted) target.mute();
             else target.unMute();
-            if (next.playing) target.playVideo();
+            if (next.playing) {
+              // The IFrame can report ready a tick before the browser has
+              // attached the media element. Retry once so a newly selected
+              // song starts on the Host without requiring a second click.
+              target.playVideo();
+              autoplayRetryTimer = window.setTimeout(() => {
+                if (!cancelled && playbackRef.current.playing) target.playVideo();
+              }, 180);
+            }
             else target.pauseVideo();
           },
           onStateChange: ({ data }) => {
@@ -249,6 +258,7 @@ function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyPreviewR
 
     return () => {
       cancelled = true;
+      window.clearTimeout(autoplayRetryTimer);
       try {
         playerRef.current?.destroy?.();
       } catch {
@@ -724,6 +734,47 @@ function SongRow({ track, favorite, onFavorite, onAdd }) {
   );
 }
 
+function CatalogSuggestionRow({ track, favorite, onFavorite, onAdd, busy }) {
+  const isBusy = busy === `add:${track.videoId}`;
+  return (
+    <li className="catalog-suggestion-row">
+      <button
+        type="button"
+        className="catalog-suggestion-select"
+        role="option"
+        onClick={() => onAdd(track)}
+        disabled={isBusy}
+      >
+        <span className="catalog-suggestion-copy">
+          <strong>{track.title}</strong>
+          <small>{track.artist || track.channelTitle || "ไม่ระบุศิลปิน"}</small>
+        </span>
+      </button>
+      <div className="catalog-suggestion-actions" aria-label={`การกระทำสำหรับ ${track.title}`}>
+        <button
+          type="button"
+          className={`catalog-suggestion-favorite${favorite ? " is-favorite" : ""}`}
+          aria-label={favorite ? "ลบจากเพลงโปรด" : "บันทึกเพลงโปรด"}
+          title={favorite ? "ลบจากเพลงโปรด" : "บันทึกเพลงโปรด"}
+          onClick={() => onFavorite(track)}
+        >
+          <Star size={17} fill={favorite ? "currentColor" : "none"} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="catalog-suggestion-add"
+          aria-label={`เพิ่ม ${track.title} เข้าคิว`}
+          title={`เพิ่ม ${track.title} เข้าคิว`}
+          onClick={() => onAdd(track)}
+          disabled={isBusy}
+        >
+          <Plus size={18} aria-hidden="true" />
+        </button>
+      </div>
+    </li>
+  );
+}
+
 function SortableQueueItem({ track, index, busy, onPlayNow, onRemove }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: track.queueId,
@@ -873,14 +924,16 @@ function PreviewController({ session, onRevoked }) {
     event?.preventDefault();
     const value = query.trim();
     if (!value) return;
-    if (catalogSuggestions[0]) {
-      await addCatalogSuggestion(catalogSuggestions[0]);
-      return;
-    }
     const searchRun = searchRunRef.current + 1;
     searchRunRef.current = searchRun;
     setPhase("loading");
     setResults([]);
+    // A catalog row is an optional shortcut, not a replacement for an
+    // explicit search. Submitting the form must always query YouTube for the
+    // typed text, even while cached Sheet suggestions are visible.
+    catalogRunRef.current += 1;
+    setCatalogSuggestions([]);
+    setCatalogPhase("idle");
     try {
       const data = isDirectYouTubeInput(value)
         ? { results: [await guard(() => hostedApi.resolveYouTube(session.roomId, session.token, value))] }
@@ -1096,16 +1149,14 @@ function PreviewController({ session, onRevoked }) {
                 {catalogSuggestions.length > 0 && (
                   <ul className="catalog-suggestions" id="catalog-suggestions" role="listbox" aria-label="เพลงแนะนำจากคลัง">
                     {catalogSuggestions.map((track) => (
-                      <li key={track.videoId}>
-                        <button type="button" role="option" onClick={() => addCatalogSuggestion(track)} disabled={busy === `add:${track.videoId}`}>
-                          <span className="catalog-suggestion-copy">
-                            <strong>{track.title}</strong>
-                            <small>{track.artist || track.channelTitle || "ไม่ระบุศิลปิน"}</small>
-                          </span>
-                          <code>{track.videoId}</code>
-                          <Plus size={18} aria-hidden="true" />
-                        </button>
-                      </li>
+                      <CatalogSuggestionRow
+                        key={track.videoId}
+                        track={track}
+                        favorite={favorites.some((item) => item.videoId === track.videoId)}
+                        onFavorite={toggleFavorite}
+                        onAdd={addCatalogSuggestion}
+                        busy={busy}
+                      />
                     ))}
                   </ul>
                 )}
