@@ -241,9 +241,10 @@ test("approved preview is the default live display and controller", async ({ pag
   await expect(phone.locator(".remote-primary")).toBeVisible();
   await expect(phone.locator(".remote-primary").getByRole("button", { name: "พักเพลง" })).toBeVisible();
   await expect(phone.locator(".remote-primary").getByRole("button", { name: "ข้ามเพลง" })).toBeVisible();
+  await expect(phone.locator(".remote-primary").getByRole("button", { name: "ย้อนกลับ" })).toBeVisible();
   const remoteColumns = await phone.locator(".remote-primary").evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(" ").filter(Boolean));
-  expect(remoteColumns).toHaveLength(2);
-  expect(Math.abs(Number.parseFloat(remoteColumns[0]) - Number.parseFloat(remoteColumns[1]))).toBeLessThanOrEqual(1);
+  expect(remoteColumns).toHaveLength(3);
+  expect(Math.max(...remoteColumns.map(Number.parseFloat)) - Math.min(...remoteColumns.map(Number.parseFloat))).toBeLessThanOrEqual(1);
   await expect(phone.locator(".remote-primary").getByRole("button", { name: "จบเพลง" })).toHaveCount(0);
   await expect(phone.locator(".remote-sheet")).not.toContainText(host.roomId);
   await expect(phone.locator(".remote-sheet .sheet-note")).toHaveCount(0);
@@ -451,4 +452,30 @@ test("mobile shell keeps header, scroll area, dock and nav in separate layers", 
     expect(layout.overflow, `${viewport.width} horizontal overflow`).toBeLessThanOrEqual(1);
     expect(layout.verticalOverflow, `${viewport.height} vertical overflow`).toBeLessThanOrEqual(1);
   }
+});
+
+test("controller recovers the room after mobile session storage is discarded", async ({ page, context }) => {
+  await page.goto("/display");
+  const host = await expect.poll(() => page.evaluate(() => {
+    const value = sessionStorage.getItem("karaoke.hostSession");
+    return value ? JSON.parse(value) : null;
+  })).not.toBeNull().then(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("karaoke.hostSession"))));
+
+  const phone = await context.newPage();
+  await phone.setViewportSize({ width: 390, height: 844 });
+  await phone.goto(host.joinPath);
+  await phone.getByLabel("ชื่อของคุณ").fill("มือถือกู้คืน");
+  await phone.getByRole("button", { name: "เข้าร่วมห้อง", exact: true }).click();
+  await expect(phone.locator(".search-box input")).toBeEnabled();
+  const recovery = await phone.evaluate(() => JSON.parse(localStorage.getItem("karaoke.controllerRecovery")));
+  expect(recovery).toMatchObject({ roomId: host.roomId, displayName: "มือถือกู้คืน" });
+
+  await phone.evaluate(() => sessionStorage.clear());
+  await phone.reload();
+  await expect(phone.locator(".search-box input")).toBeEnabled({ timeout: 15_000 });
+  await expect(phone.getByLabel("ชื่อของคุณ")).toHaveCount(0);
+  const recoveredSession = await phone.evaluate(() => JSON.parse(sessionStorage.getItem("karaoke.controllerSession")));
+  expect(recoveredSession).toMatchObject({ roomId: host.roomId, displayName: "มือถือกู้คืน" });
+  expect(recoveredSession.token).toBeTruthy();
+  await phone.close();
 });

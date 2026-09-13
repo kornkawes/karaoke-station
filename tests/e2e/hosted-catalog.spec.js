@@ -223,7 +223,9 @@ test("direct YouTube input bypasses catalog and keeps the resolve flow", async (
   await phone.locator(".search-box button").click();
 
   await expect.poll(() => resolveRequests.length).toBe(1);
-  expect(catalogRequests).toHaveLength(0);
+  // The controller warms the Sheet catalog once after joining. Direct YouTube
+  // input must still bypass any query-specific catalog request.
+  expect(catalogRequests.map((value) => new URL(value).searchParams.get("q")).filter(Boolean)).toHaveLength(0);
   expect(searchRequests).toHaveLength(0);
   await expect(phone.locator(".song-row")).toContainText("เพลงจากลิงก์ตรง");
   expect(resolveRequests[0].pathname).toContain("/youtube/resolve");

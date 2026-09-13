@@ -9,7 +9,8 @@ export const emptyPreviewRoom = {
   connectedControllerCount: 0,
   idle: { phase: "active", warning: false, idleSinceAt: null, warningAt: null, closesAt: null },
   settings: { fairQueue: false },
-  playback: { playing: true, volume: 75, muted: false }
+  playback: { playing: true, volume: 75, muted: false },
+  restartNonce: 0
 };
 
 export function viewToPreviewRoom(view, previous = emptyPreviewRoom) {
@@ -30,7 +31,10 @@ export function viewToPreviewRoom(view, previous = emptyPreviewRoom) {
       : Number(previous.connectedControllerCount || previous.controllerCount || 0),
     idle: view?.idle ?? previous.idle ?? emptyPreviewRoom.idle,
     settings: view?.settings ?? previous.settings ?? { fairQueue: false },
-    playback: view?.playback ?? previous.playback ?? { playing: true, volume: 75, muted: false }
+    playback: view?.playback ?? previous.playback ?? { playing: true, volume: 75, muted: false },
+    restartNonce: Number.isFinite(Number(view?.restartNonce))
+      ? Number(view.restartNonce)
+      : Number(previous.restartNonce || 0)
   };
 }
 

@@ -139,6 +139,23 @@ export function advanceQueue(draft, { outcome = "completed", failureReason = nul
   return { previous, current: draft.current };
 }
 
+/**
+ * Restore the most recently completed/skipped item and put the current item
+ * back at the head of the queue. This gives the mobile remote a conventional
+ * "previous" action while preserving every track and its requester metadata.
+ */
+export function previousQueue(draft) {
+  if (!draft.current || !Array.isArray(draft.history) || draft.history.length === 0) {
+    return { previous: null, current: draft.current, changed: false };
+  }
+  const historyItemToRestore = draft.history.shift();
+  const { playedAt: _playedAt, status: _status, failureReason: _failureReason, ...restoredTrack } = historyItemToRestore;
+  const previous = draft.current;
+  draft.queue.unshift({ ...previous, status: "queued", failureReason: null });
+  draft.current = { ...restoredTrack, status: "ready", failureReason: null };
+  return { previous, current: draft.current, changed: true };
+}
+
 export function removeQueueItem(draft, itemId) {
   if (draft.current?.id === itemId) {
     return advanceQueue(draft, { outcome: "removed" });

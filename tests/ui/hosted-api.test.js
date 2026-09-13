@@ -4,6 +4,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CONTROLLER_STORAGE_KEY,
+  CONTROLLER_RECOVERY_KEY,
+  clearControllerRecovery,
   clearSession,
   consumeJoinFragment,
   hostedApi,
@@ -12,6 +14,8 @@ import {
   partyJoinUrlFor,
   sessionJoinUrlFor,
   readSession,
+  readControllerRecovery,
+  writeControllerRecovery,
   writeSession
 } from "../../src/lib/hosted-api";
 
@@ -83,6 +87,15 @@ describe("session storage", () => {
   it("uses sessionStorage so tokens do not persist after the tab closes", () => {
     writeSession(CONTROLLER_STORAGE_KEY, { roomId: "ABCD2345", token: "secret-token" });
     expect(localStorage.getItem(CONTROLLER_STORAGE_KEY)).toBeNull();
+  });
+
+  it("stores only a room-scoped recovery hint and can preserve it while replacing an expired bearer", () => {
+    writeControllerRecovery({ roomId: "ABCD2345", joinToken: "join-secret", displayName: "Nut" });
+    expect(readControllerRecovery()).toEqual({ roomId: "ABCD2345", joinToken: "join-secret", displayName: "Nut" });
+    clearSession(CONTROLLER_STORAGE_KEY, { clearRecovery: false });
+    expect(localStorage.getItem(CONTROLLER_RECOVERY_KEY)).toContain("join-secret");
+    clearControllerRecovery();
+    expect(readControllerRecovery()).toBeNull();
   });
 });
 
@@ -191,6 +204,18 @@ describe("request shaping", () => {
     expect(options.method).toBe("PATCH");
     expect(options.headers.Authorization).toBe("Bearer controller-secret");
     expect(JSON.parse(options.body)).toEqual({ playing: false, volume: 35, muted: true });
+  });
+
+  it("sends room-scoped restart and previous commands with the current revision", async () => {
+    const spy = mockFetch(200, { data: { revision: 8, restartNonce: 3 } });
+    await hostedApi.restart("ABCD2345", "controller-secret", 7);
+    expect(spy.mock.calls[0][0]).toBe("/api/v1/rooms/ABCD2345/playback/restart");
+    expect(JSON.parse(spy.mock.calls[0][1].body)).toEqual({ revision: 7 });
+
+    const previousSpy = mockFetch(200, { data: { revision: 9, current: {}, queue: { items: [] } } });
+    await hostedApi.previous("ABCD2345", "controller-secret", 8);
+    expect(previousSpy.mock.calls[0][0]).toBe("/api/v1/rooms/ABCD2345/queue/previous");
+    expect(JSON.parse(previousSpy.mock.calls[0][1].body)).toEqual({ revision: 8 });
   });
 
   it("sends a room-scoped reorder with item, target index, and latest revision", async () => {

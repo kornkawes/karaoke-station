@@ -18,6 +18,7 @@ import {
   Search,
   Settings,
   Share2,
+  SkipBack,
   SkipForward,
   Star,
   Trash2,
@@ -31,6 +32,7 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import {
   CONTROLLER_STORAGE_KEY,
+  clearControllerRecovery,
   HOST_STORAGE_KEY,
   clearSession,
   connectRoom,
@@ -41,6 +43,8 @@ import {
   sessionJoinUrlFor,
   normalizeTrack,
   readSession,
+  readControllerRecovery,
+  writeControllerRecovery,
   writeSession
 } from "../lib/hosted-api";
 import { loadYouTubeIframeApi } from "../lib/youtube";
@@ -183,7 +187,29 @@ export function normalizeCatalogSuggestions(data) {
     .filter((track) => track?.videoId && track?.title);
 }
 
-export function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyPreviewRoom.playback }) {
+function catalogSearchText(track) {
+  return [track?.artist, track?.title, track?.channelTitle, ...(track?.aliases || [])]
+    .filter(Boolean)
+    .join(" ")
+    .normalize("NFKC")
+    .toLocaleLowerCase("th");
+}
+
+export function filterCatalogSuggestions(items, value) {
+  const tokens = String(value || "")
+    .trim()
+    .normalize("NFKC")
+    .toLocaleLowerCase("th")
+    .split(/\s+/u)
+    .filter(Boolean);
+  if (!tokens.length) return [];
+  return items.filter((track) => {
+    const candidate = catalogSearchText(track);
+    return tokens.every((token) => candidate.includes(token));
+  }).slice(0, SEARCH_RESULT_LIMIT);
+}
+
+export function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyPreviewRoom.playback, restartNonce = 0 }) {
   const mountRef = useRef(null);
   const playerRef = useRef(null);
   const playerReadyRef = useRef(false);
@@ -191,6 +217,7 @@ export function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyP
   const onEndedRef = useRef(onEnded);
   const onErrorRef = useRef(onError);
   const playbackRef = useRef(playback);
+  const restartNonceRef = useRef(restartNonce);
   onEndedRef.current = onEnded;
   onErrorRef.current = onError;
   playbackRef.current = playback;
@@ -201,6 +228,7 @@ export function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyP
     let ended = false;
     let autoplayRetryTimer;
     playerReadyRef.current = false;
+    restartNonceRef.current = restartNonce;
     setAutoplayBlocked(false);
     if (!track?.videoId || !mountRef.current) return undefined;
 
@@ -291,6 +319,19 @@ export function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyP
       if (mountRef.current) mountRef.current.textContent = "";
     };
   }, [trackKey]);
+
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player || !playerReadyRef.current || restartNonce === restartNonceRef.current) return;
+    restartNonceRef.current = restartNonce;
+    try {
+      player.seekTo?.(0, true);
+      player.playVideo?.();
+    } catch {
+      // The IFrame API can still be settling after a room event; the next
+      // playback update/onReady will retry with the latest state.
+    }
+  }, [restartNonce]);
 
   useEffect(() => {
     const player = playerRef.current;
@@ -576,7 +617,7 @@ function PreviewDisplayView() {
         data-display-mode={isPresenting ? "presentation" : "invite"}
         aria-label={room.current ? `จอเพลงจริง · ${room.current.title}` : "จอเพลงจริง · รอเพลงแรก"}
       >
-        <PreviewYouTubeStage track={room.current} onEnded={advance} onError={reportFailure} playback={room.playback} />
+        <PreviewYouTubeStage track={room.current} onEnded={advance} onError={reportFailure} playback={room.playback} restartNonce={room.restartNonce} />
 
         {idleWarning?.closesAt && (
           <aside className="host-idle-warning" role="alert" data-idle-warning>
@@ -846,6 +887,7 @@ function PreviewController({ session, onRevoked }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [catalogSuggestions, setCatalogSuggestions] = useState([]);
+  const [catalogSeed, setCatalogSeed] = useState([]);
   const [catalogPhase, setCatalogPhase] = useState("idle");
   const [phase, setPhase] = useState("idle");
   const [favorites, setFavorites] = useState(readFavorites);
@@ -865,6 +907,7 @@ function PreviewController({ session, onRevoked }) {
   const volumeTimer = useRef(null);
   const searchRunRef = useRef(0);
   const catalogRunRef = useRef(0);
+  const previousActionRef = useRef({ timer: null, promise: null });
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -872,12 +915,15 @@ function PreviewController({ session, onRevoked }) {
     return () => clearTimeout(timer);
   }, [notice]);
 
-  useEffect(() => () => clearTimeout(volumeTimer.current), []);
+  useEffect(() => () => {
+    clearTimeout(volumeTimer.current);
+    clearTimeout(previousActionRef.current.timer);
+  }, []);
 
   useEffect(() => connectRoom(session, (event) => {
     if (event.type === "connection") setConnected(event.connected);
     if (event.type === "room") setRoom((previous) => applyPreviewRoomView(event.view, previous));
-    if (event.type === "revoked") onRevoked();
+    if (event.type === "revoked") onRevoked(event.code);
   }), [session, onRevoked]);
 
   useEffect(() => {
@@ -885,7 +931,7 @@ function PreviewController({ session, onRevoked }) {
     hostedApi.queue(session.roomId, session.token)
       .then((view) => { if (live) setRoom((previous) => applyPreviewRoomView(view, previous)); })
       .catch((requestError) => {
-        if (live && isSessionRevokedError(`${requestError.code} ${requestError.status}`)) onRevoked();
+        if (live && isSessionRevokedError(`${requestError.code} ${requestError.status}`)) onRevoked(requestError.code || requestError.status);
       });
     return () => { live = false; };
   }, [session, onRevoked]);
@@ -895,18 +941,37 @@ function PreviewController({ session, onRevoked }) {
     let live = true;
     hostedApi.history(session.roomId, session.token)
       .then((data) => { if (live) setHistory(data.history || []); })
-      .catch(() => {});
+      .catch((requestError) => {
+        if (live && isSessionRevokedError(`${requestError.code} ${requestError.status}`)) onRevoked(requestError.code || requestError.status);
+      });
     return () => { live = false; };
-  }, [room.revision, session, tab]);
+  }, [onRevoked, room.revision, session, tab]);
 
   const guard = useCallback(async (operation) => {
     try {
       return await operation();
     } catch (requestError) {
-      if (isSessionRevokedError(`${requestError.code} ${requestError.status}`)) onRevoked();
+      if (isSessionRevokedError(`${requestError.code} ${requestError.status}`)) onRevoked(requestError.code || requestError.status);
       throw requestError;
     }
   }, [onRevoked]);
+
+  // Warm the Sheet catalog as soon as the controller is mounted. The first
+  // typed character can then filter local data while the room-scoped refresh
+  // runs in the background, instead of making the user wait for a cold Sheet
+  // OAuth/read request after opening the search field.
+  useEffect(() => {
+    let active = true;
+    hostedApi.catalogSuggestions(session.roomId, session.token, "", { limit: SEARCH_RESULT_LIMIT })
+      .then((data) => {
+        if (!active) return;
+        setCatalogSeed(normalizeCatalogSuggestions(data));
+      })
+      .catch((requestError) => {
+        if (active && isSessionRevokedError(`${requestError.code} ${requestError.status}`)) onRevoked(requestError.code || requestError.status);
+      });
+    return () => { active = false; };
+  }, [onRevoked, session.roomId, session.token]);
 
   useEffect(() => {
     const value = query.trim();
@@ -919,8 +984,9 @@ function PreviewController({ session, onRevoked }) {
       return undefined;
     }
 
-    setCatalogSuggestions([]);
-    setCatalogPhase("loading");
+    const localSuggestions = filterCatalogSuggestions(catalogSeed, value);
+    setCatalogSuggestions(localSuggestions);
+    setCatalogPhase(localSuggestions.length ? "ready" : "loading");
     let active = true;
     const timer = window.setTimeout(() => {
       hostedApi.catalogSuggestions(session.roomId, session.token, value)
@@ -931,9 +997,14 @@ function PreviewController({ session, onRevoked }) {
         })
         .catch((requestError) => {
           if (!active || catalogRun !== catalogRunRef.current) return;
-          if (isSessionRevokedError(`${requestError.code} ${requestError.status}`)) onRevoked();
-          setCatalogSuggestions([]);
-          setCatalogPhase("error");
+          if (isSessionRevokedError(`${requestError.code} ${requestError.status}`)) onRevoked(requestError.code || requestError.status);
+          // Keep already-warmed local rows visible if the refresh request is
+          // temporarily unavailable. A catalog outage should not block a
+          // normal YouTube search or hide useful suggestions.
+          if (!localSuggestions.length) {
+            setCatalogSuggestions([]);
+            setCatalogPhase("error");
+          }
         });
     }, 180);
 
@@ -941,7 +1012,7 @@ function PreviewController({ session, onRevoked }) {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [filter, onRevoked, query, session.roomId, session.token, tab]);
+  }, [catalogSeed, filter, onRevoked, query, session.roomId, session.token, tab]);
 
   const doSearch = async (event) => {
     event?.preventDefault();
@@ -1064,6 +1135,65 @@ function PreviewController({ session, onRevoked }) {
     }
   };
 
+  const restartCurrent = async () => {
+    if (!room.current) return null;
+    try {
+      const result = await guard(() => hostedApi.restart(session.roomId, session.token, room.revision));
+      setRoom((previous) => ({
+        ...previous,
+        revision: Math.max(previous.revision, Number(result?.revision) || previous.revision),
+        restartNonce: Number(result?.restartNonce) || previous.restartNonce,
+        playback: { ...previous.playback, ...(result?.playback || {}), playing: true }
+      }));
+      setNotice("เริ่มเพลงเดิมใหม่แล้ว");
+      return result;
+    } catch (requestError) {
+      setNotice(requestError.message || "เริ่มเพลงใหม่ไม่สำเร็จ");
+      return null;
+    }
+  };
+
+  const previousTrack = async (revision) => {
+    if (!room.current || busy) return null;
+    setBusy("previous");
+    try {
+      const result = await guard(() => hostedApi.previous(session.roomId, session.token, revision));
+      setRoom((previous) => applyPreviewRoomView({
+        revision: result?.revision,
+        current: result?.current,
+        queue: result?.queue
+      }, previous));
+      setNotice("ย้อนกลับไปเพลงก่อนหน้าแล้ว");
+      setSheet(null);
+      return result;
+    } catch (requestError) {
+      setNotice(requestError.message || "ยังไม่มีเพลงก่อนหน้า");
+      return null;
+    } finally {
+      setBusy("");
+    }
+  };
+
+  // The first press is intentionally immediate: it restarts the current item.
+  // A second press inside the short double-press window reuses the revision
+  // returned by the restart and asks the server for the previous history item.
+  const handlePrevious = () => {
+    const pending = previousActionRef.current;
+    if (pending.promise) {
+      clearTimeout(pending.timer);
+      previousActionRef.current = { timer: null, promise: null };
+      void pending.promise.then((result) => {
+        if (result?.revision !== undefined) void previousTrack(result.revision);
+      });
+      return;
+    }
+    const promise = restartCurrent();
+    const timer = window.setTimeout(() => {
+      previousActionRef.current = { timer: null, promise: null };
+    }, 450);
+    previousActionRef.current = { timer, promise };
+  };
+
   const toggleFairQueue = async () => {
     if (fairSaving) return;
     setFairSaving(true);
@@ -1160,7 +1290,6 @@ function PreviewController({ session, onRevoked }) {
                     value={query}
                     onChange={(event) => {
                       setQuery(event.target.value);
-                      setCatalogSuggestions([]);
                     }}
                     placeholder="ชื่อเพลง, ศิลปิน หรือ YouTube URL"
                     autoComplete="off"
@@ -1264,14 +1393,25 @@ function PreviewController({ session, onRevoked }) {
                 <div className="remote-primary">
                   <button
                     type="button"
+                    className="remote-back"
+                    disabled={!current || Boolean(busy)}
+                    onClick={handlePrevious}
+                    aria-label="ย้อนกลับ"
+                    title="ย้อนกลับ / เริ่มเพลงเดิมใหม่"
+                  >
+                    <SkipBack size={17} />
+                  </button>
+                  <button
+                    type="button"
+                    className="remote-play"
                     disabled={!current}
                     onClick={() => updatePlayback({ playing: !room.playback?.playing })}
                     aria-label={room.playback?.playing ? "พักเพลง" : "เล่นเพลงต่อ"}
                   >
                     {room.playback?.playing ? <Pause size={17} /> : <Play size={17} />}
                   </button>
-                  <button type="button" disabled={!current || Boolean(busy)} onClick={skip}>
-                    <SkipForward size={17} /> ข้ามเพลง
+                  <button type="button" className="remote-next" disabled={!current || Boolean(busy)} onClick={skip} aria-label="ข้ามเพลง" title="ข้ามเพลง">
+                    <SkipForward size={17} />
                   </button>
                 </div>
                 <div className="volume-row">
@@ -1294,28 +1434,89 @@ function PreviewController({ session, onRevoked }) {
 
 function PreviewPartyView() {
   const [fragment] = useState(() => consumeJoinFragment());
-  const [session, setSession] = useState(() => readSession(CONTROLLER_STORAGE_KEY));
+  const [session, setSession] = useState(() => {
+    const stored = readSession(CONTROLLER_STORAGE_KEY);
+    // A fresh QR scan in an existing browser tab always wins over a stale
+    // session from another room.
+    return stored && fragment.roomId && stored.roomId !== fragment.roomId ? null : stored;
+  });
+  const [recovery, setRecovery] = useState(() => readControllerRecovery());
+  const [recovering, setRecovering] = useState(() => {
+    const stored = readSession(CONTROLLER_STORAGE_KEY);
+    const cached = readControllerRecovery();
+    const sameRoom = !fragment.roomId || !cached?.roomId || cached.roomId === fragment.roomId;
+    return !stored && Boolean(cached) && sameRoom;
+  });
   const roomId = session?.roomId || fragment.roomId;
 
-  const join = async (displayName) => {
-    const result = await hostedApi.join(fragment.roomId, fragment.joinToken, displayName);
+  const commitSession = useCallback((result, joinToken, displayName) => {
     const next = {
       roomId: result.roomId,
       token: result.token,
       displayName: result.displayName,
-      joinToken: fragment.joinToken,
+      joinToken,
       expiresAt: result.expiresAt,
       searchConfigured: result.searchConfigured
     };
     writeSession(CONTROLLER_STORAGE_KEY, next);
+    writeControllerRecovery(next);
     setSession(next);
-  };
-
-  const revoked = useCallback(() => {
-    clearSession(CONTROLLER_STORAGE_KEY);
-    setSession(null);
+    setRecovery({ roomId: next.roomId, joinToken: next.joinToken, displayName: next.displayName });
+    setRecovering(false);
   }, []);
 
+  const join = useCallback(async (displayName) => {
+    const result = await hostedApi.join(fragment.roomId, fragment.joinToken, displayName);
+    commitSession(result, fragment.joinToken, displayName);
+  }, [commitSession, fragment.joinToken, fragment.roomId]);
+
+  useEffect(() => {
+    const fragmentIsDifferentRoom = Boolean(fragment.roomId && recovery?.roomId && fragment.roomId !== recovery.roomId);
+    if (session || fragmentIsDifferentRoom || !recovery?.roomId || !recovery.joinToken || !recovery.displayName) return undefined;
+    let active = true;
+    setRecovering(true);
+    hostedApi.join(recovery.roomId, recovery.joinToken, recovery.displayName)
+      .then((result) => {
+        if (active) commitSession(result, recovery.joinToken, recovery.displayName);
+      })
+      .catch(() => {
+        if (!active) return;
+        clearControllerRecovery();
+        setRecovery(null);
+        setRecovering(false);
+      });
+    return () => { active = false; };
+  }, [commitSession, fragment.joinToken, recovery, session]);
+
+  const revoked = useCallback((code = "") => {
+    const recoverable = /controller_session_expired|session_expired|controller_auth_required|\b401\b|\b403\b/i.test(String(code));
+    const cachedRecovery = readControllerRecovery();
+    const sameRoom = !fragment.roomId || !cachedRecovery?.roomId || cachedRecovery.roomId === fragment.roomId;
+    if (recoverable && cachedRecovery && sameRoom) {
+      // Keep the join credential, discard only the expired bearer, and mint a
+      // fresh controller session automatically. Room rotation/closure errors
+      // intentionally take the normal join path instead.
+      clearSession(CONTROLLER_STORAGE_KEY, { clearRecovery: false });
+      setSession(null);
+      setRecovery(cachedRecovery);
+      setRecovering(true);
+      return;
+    }
+    clearSession(CONTROLLER_STORAGE_KEY);
+    setRecovery(null);
+    setRecovering(false);
+    setSession(null);
+  }, [fragment.roomId]);
+
+  if (!session && recovering) {
+    return (
+      <main className="mobile-preview preview-functional-app">
+        <section className="phone" aria-label="กำลังกู้การเชื่อมต่อห้อง">
+          <div className="empty-state"><LoaderCircle className="spin" size={30} /><span>กำลังกู้ห้องเดิม…</span></div>
+        </section>
+      </main>
+    );
+  }
   if (!session) return <PreviewJoinView roomId={roomId} joinToken={fragment.joinToken} onJoin={join} />;
   return <PreviewController session={session} onRevoked={revoked} />;
 }

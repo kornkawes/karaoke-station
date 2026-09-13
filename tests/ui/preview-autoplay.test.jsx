@@ -25,6 +25,7 @@ describe("preview host autoplay", () => {
 
         unloadModule(name) { calls.push(["unloadModule", name]); }
         setVolume(value) { calls.push(["setVolume", value]); }
+        seekTo(value, allowSeekAhead) { calls.push(["seekTo", value, allowSeekAhead]); }
         mute() { calls.push(["mute"]); }
         unMute() { calls.push(["unMute"]); }
         playVideo() {
@@ -60,5 +61,29 @@ describe("preview host autoplay", () => {
     expect(muteIndex).toBeGreaterThanOrEqual(0);
     expect(playIndex).toBeGreaterThan(muteIndex);
     expect(unmuteIndex).toBeGreaterThan(playIndex);
+  });
+
+  it("seeks the current player to zero when the room restart marker changes", async () => {
+    const view = render(
+      <PreviewYouTubeStage
+        track={track}
+        restartNonce={0}
+        playback={{ playing: true, volume: 75, muted: false }}
+        onEnded={() => {}}
+        onError={() => {}}
+      />
+    );
+
+    await waitFor(() => expect(calls.some(([name]) => name === "playVideo")).toBe(true));
+    view.rerender(
+      <PreviewYouTubeStage
+        track={track}
+        restartNonce={1}
+        playback={{ playing: true, volume: 75, muted: false }}
+        onEnded={() => {}}
+        onError={() => {}}
+      />
+    );
+    await waitFor(() => expect(calls).toContainEqual(["seekTo", 0, true]));
   });
 });

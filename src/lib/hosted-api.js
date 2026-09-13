@@ -11,6 +11,11 @@ export { ApiError, apiTrack, normalizeQueue, normalizeTrack };
  */
 export const HOST_STORAGE_KEY = "karaoke.hostSession";
 export const CONTROLLER_STORAGE_KEY = "karaoke.controllerSession";
+// The controller bearer is intentionally kept in sessionStorage.  A mobile
+// browser may discard that storage while suspending a tab, so keep only the
+// room-scoped join credential and display name as a recovery hint.  The hint
+// can mint a fresh controller token after the tab comes back.
+export const CONTROLLER_RECOVERY_KEY = "karaoke.controllerRecovery";
 
 async function request(path, { token, method = "GET", body, ...options } = {}) {
   const headers = { ...(options.headers || {}) };
@@ -62,6 +67,8 @@ export const hostedApi = {
     request(roomPath(roomId, "/settings"), { method: "PATCH", token, body: patch }),
   updatePlayback: (roomId, token, patch) =>
     request(roomPath(roomId, "/playback"), { method: "PATCH", token, body: patch }),
+  restart: (roomId, token, revision) =>
+    request(roomPath(roomId, "/playback/restart"), { method: "POST", token, body: { revision } }),
 
   join: (roomId, joinToken, displayName) =>
     request(roomPath(roomId, "/join"), { method: "POST", body: { joinToken, displayName } }),
@@ -91,6 +98,8 @@ export const hostedApi = {
     }),
   skip: (roomId, token, revision) =>
     request(roomPath(roomId, "/queue/skip"), { method: "POST", token, body: { revision } }),
+  previous: (roomId, token, revision) =>
+    request(roomPath(roomId, "/queue/previous"), { method: "POST", token, body: { revision } }),
   complete: (roomId, token, revision) =>
     request(roomPath(roomId, "/queue/complete"), { method: "POST", token, body: { revision } }),
   playNow: (roomId, token, itemId, revision) =>
@@ -135,10 +144,17 @@ export function consumeJoinFragment(locationLike = window.location, historyLike 
 }
 
 export function readSession(key) {
+  const read = (storage, storageKey) => {
+    try {
+      return storage?.getItem(storageKey) || "";
+    } catch {
+      return "";
+    }
+  };
+  const rawSession = read(sessionStorage, key);
   try {
-    const raw = sessionStorage.getItem(key);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
+    if (!rawSession) return null;
+    const parsed = JSON.parse(rawSession);
     if (!parsed?.roomId || !parsed?.token) return null;
     if (parsed.expiresAt && Date.parse(parsed.expiresAt) <= Date.now()) {
       sessionStorage.removeItem(key);
@@ -158,12 +174,51 @@ export function writeSession(key, session) {
   }
 }
 
-export function clearSession(key) {
+/** Store only non-bearer recovery data for a mobile controller. */
+export function writeControllerRecovery(session) {
+  try {
+    if (!session?.roomId || !session?.joinToken || !session?.displayName) return;
+    localStorage.setItem(CONTROLLER_RECOVERY_KEY, JSON.stringify({
+      roomId: session.roomId,
+      joinToken: session.joinToken,
+      displayName: session.displayName
+    }));
+  } catch {
+    // Storage can be unavailable in private browsing; sessionStorage remains the fallback.
+  }
+}
+
+export function readControllerRecovery() {
+  try {
+    const raw = localStorage.getItem(CONTROLLER_RECOVERY_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.roomId || !parsed?.joinToken || !parsed?.displayName) return null;
+    return {
+      roomId: String(parsed.roomId),
+      joinToken: String(parsed.joinToken),
+      displayName: String(parsed.displayName).slice(0, 20)
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function clearControllerRecovery() {
+  try {
+    localStorage.removeItem(CONTROLLER_RECOVERY_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function clearSession(key, { clearRecovery = true } = {}) {
   try {
     sessionStorage.removeItem(key);
   } catch {
     // ignore
   }
+  if (key === CONTROLLER_STORAGE_KEY && clearRecovery) clearControllerRecovery();
 }
 
 /** Absolute join URL for the QR code, built from the hosted origin. */

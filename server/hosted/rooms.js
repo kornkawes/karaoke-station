@@ -58,6 +58,9 @@ export function defaultRoomState() {
       volume: 75,
       muted: false
     },
+    // Monotonic command marker used by the Host to restart the current YouTube
+    // item without changing the queue or exposing a player-side socket API.
+    restartNonce: 0,
     current: null,
     queue: [],
     history: [],

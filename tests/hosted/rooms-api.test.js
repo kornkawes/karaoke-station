@@ -743,6 +743,56 @@ describe("shared playback controls", () => {
     expect(runtime.store.require(room.roomId).state.current).toBeNull();
     expect(runtime.store.require(room.roomId).state.playback.playing).toBe(false);
   });
+
+  it("restarts the current track without changing the queue", async () => {
+    const room = await createRoom();
+    const controller = await joinRoom(room);
+    await addTrack(room, controller.token, videoA).expect(201);
+    const before = await api("get", `/api/v1/rooms/${room.roomId}/queue`)
+      .set("Authorization", `Bearer ${controller.token}`)
+      .expect(200);
+    await api("patch", `/api/v1/rooms/${room.roomId}/playback`)
+      .set("Authorization", `Bearer ${controller.token}`)
+      .send({ playing: false })
+      .expect(200);
+
+    const response = await api("post", `/api/v1/rooms/${room.roomId}/playback/restart`)
+      .set("Authorization", `Bearer ${controller.token}`)
+      .send({ revision: before.body.data.revision + 1 })
+      .expect(200);
+    expect(response.body.data).toMatchObject({
+      restartNonce: 1,
+      playback: { playing: true }
+    });
+    expect(runtime.store.require(room.roomId).state.current.videoId).toBe(videoA.videoId);
+    expect(runtime.store.require(room.roomId).state.queue).toHaveLength(0);
+  });
+
+  it("restores the previous history item and keeps the interrupted current item queued", async () => {
+    const room = await createRoom();
+    const controller = await joinRoom(room);
+    await addTrack(room, controller.token, videoA).expect(201);
+    await addTrack(room, controller.token, videoB).expect(201);
+    const beforeComplete = await api("get", `/api/v1/rooms/${room.roomId}/queue`)
+      .set("Authorization", `Bearer ${controller.token}`)
+      .expect(200);
+    await api("post", `/api/v1/rooms/${room.roomId}/queue/complete`)
+      .set("Authorization", `Bearer ${controller.token}`)
+      .send({ revision: beforeComplete.body.data.revision })
+      .expect(200);
+    const beforePrevious = await api("get", `/api/v1/rooms/${room.roomId}/queue`)
+      .set("Authorization", `Bearer ${controller.token}`)
+      .expect(200);
+
+    const response = await api("post", `/api/v1/rooms/${room.roomId}/queue/previous`)
+      .set("Authorization", `Bearer ${controller.token}`)
+      .send({ revision: beforePrevious.body.data.revision })
+      .expect(200);
+    expect(response.body.data.current.videoId).toBe(videoA.videoId);
+    expect(response.body.data.queue.items.map((item) => item.videoId)).toEqual([videoB.videoId]);
+    expect(response.body.data.action.action).toBe("previous");
+    expect(runtime.store.require(room.roomId).state.history).toHaveLength(0);
+  });
 });
 
 describe("secret non-disclosure", () => {

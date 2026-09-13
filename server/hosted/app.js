@@ -11,6 +11,7 @@ import {
   advanceQueue,
   orderQueueByArrival,
   playQueueItemNow,
+  previousQueue,
   publicMutationResult,
   publicTrack,
   queueView,
@@ -68,6 +69,7 @@ export function roomView(room, currentTime = Date.now()) {
       volume: room.state.playback.volume,
       muted: Boolean(room.state.playback.muted)
     },
+    restartNonce: Number(room.state.restartNonce) || 0,
     current: publicTrack(room.state.current),
     queue: room.state.queue.map(publicTrack),
     expiresAt: new Date(room.expiresAt).toISOString(),
@@ -471,6 +473,27 @@ export async function createHostedApplication({
     });
   }));
 
+  app.post("/api/v1/rooms/:roomId/playback/restart", memberAuth, asyncRoute(async (request, response) => {
+    const input = revisionSchema.parse(request.body ?? {});
+    const mutation = await store.mutate(request.room.roomId, (draft) => {
+      if (input.revision !== undefined) assertRevision(draft, input.revision);
+      if (!draft.current) throw new AppError(409, "queue_has_no_current", "ไม่มีเพลงที่กำลังเล่นให้เริ่มใหม่");
+      draft.playback.playing = true;
+      draft.restartNonce = (Number(draft.restartNonce) || 0) + 1;
+      return draft.restartNonce;
+    });
+    emitRoom(mutation.room, "room:changed");
+    data(response, {
+      revision: mutation.state.revision,
+      restartNonce: mutation.state.restartNonce,
+      playback: {
+        playing: Boolean(mutation.state.playback.playing),
+        volume: mutation.state.playback.volume,
+        muted: Boolean(mutation.state.playback.muted)
+      }
+    });
+  }));
+
   // ---- Join (public, join token only) ---------------------------------------
 
   app.post("/api/v1/rooms/:roomId/join", joinLimiter, (request, response, next) => {
@@ -690,6 +713,35 @@ export async function createHostedApplication({
         actor: request.actor.displayName ?? "Host",
         action: "skip",
         track: mutation.result.previous
+      });
+      data(response, {
+        revision: mutation.state.revision,
+        ...publicMutationResult(mutation.result),
+        action,
+        queue: queueView(mutation.state)
+      });
+    })
+  );
+
+  app.post(
+    "/api/v1/rooms/:roomId/queue/previous",
+    memberAuth,
+    asyncRoute(async (request, response) => {
+      const input = revisionSchema.parse(request.body ?? {});
+      const mutation = await store.mutate(request.room.roomId, (draft) => {
+        if (input.revision !== undefined) assertRevision(draft, input.revision);
+        const result = previousQueue(draft);
+        if (!result.changed) {
+          throw new AppError(409, "queue_has_no_previous", "ยังไม่มีเพลงก่อนหน้าให้ย้อนกลับ");
+        }
+        resetPlaybackAfterTrackTransition(draft, result.previous?.id ?? null);
+        return result;
+      });
+      emitRoom(mutation.room, "room:changed");
+      const action = emitAction(mutation.room, {
+        actor: request.actor.displayName ?? "Host",
+        action: "previous",
+        track: mutation.result.current
       });
       data(response, {
         revision: mutation.state.revision,
