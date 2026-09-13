@@ -183,9 +183,10 @@ export function normalizeCatalogSuggestions(data) {
     .filter((track) => track?.videoId && track?.title);
 }
 
-function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyPreviewRoom.playback }) {
+export function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyPreviewRoom.playback }) {
   const mountRef = useRef(null);
   const playerRef = useRef(null);
+  const playerReadyRef = useRef(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const onEndedRef = useRef(onEnded);
   const onErrorRef = useRef(onError);
@@ -199,6 +200,7 @@ function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyPreviewR
     let cancelled = false;
     let ended = false;
     let autoplayRetryTimer;
+    playerReadyRef.current = false;
     setAutoplayBlocked(false);
     if (!track?.videoId || !mountRef.current) return undefined;
 
@@ -223,25 +225,45 @@ function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyPreviewR
         },
         events: {
           onReady: ({ target }) => {
+            playerReadyRef.current = true;
             target.unloadModule?.("captions");
             const next = playbackRef.current;
             target.setVolume(next.volume);
-            if (next.muted) target.mute();
-            else target.unMute();
             if (next.playing) {
+              // Start muted first. Chromium and Safari block an unmuted
+              // autoplay request when the Host has not received a gesture;
+              // starting muted lets the new queue item begin immediately.
+              // Audio is restored as soon as YouTube reports PLAYING below.
+              target.mute?.();
+              target.playVideo();
               // The IFrame can report ready a tick before the browser has
               // attached the media element. Retry once so a newly selected
               // song starts on the Host without requiring a second click.
-              target.playVideo();
               autoplayRetryTimer = window.setTimeout(() => {
                 if (!cancelled && playbackRef.current.playing) target.playVideo();
               }, 180);
             }
-            else target.pauseVideo();
+            else {
+              if (next.muted) target.mute?.();
+              else target.unMute?.();
+              target.pauseVideo();
+            }
           },
-          onStateChange: ({ data }) => {
+          onStateChange: ({ data, target }) => {
             if (cancelled || ended) return;
-            if (data === window.YT.PlayerState.PLAYING) setAutoplayBlocked(false);
+            if (data === window.YT.PlayerState.PLAYING) {
+              window.clearTimeout(autoplayRetryTimer);
+              setAutoplayBlocked(false);
+              const next = playbackRef.current;
+              if (next.muted) target.mute?.();
+              else {
+                // Unmute only after playback has started. This avoids the
+                // browser rejecting the initial play() while still restoring
+                // the room volume automatically for normal karaoke use.
+                target.unMute?.();
+                target.setVolume?.(next.volume);
+              }
+            }
             if (data === window.YT.PlayerState.ENDED) {
               ended = true;
               onEndedRef.current?.();
@@ -265,13 +287,14 @@ function PreviewYouTubeStage({ track, onEnded, onError, playback = emptyPreviewR
         // The iframe may already have been removed by the browser.
       }
       playerRef.current = null;
+      playerReadyRef.current = false;
       if (mountRef.current) mountRef.current.textContent = "";
     };
   }, [trackKey]);
 
   useEffect(() => {
     const player = playerRef.current;
-    if (!player) return;
+    if (!player || !playerReadyRef.current) return;
     try {
       player.setVolume?.(playback.volume);
       if (playback.muted) player.mute?.();
