@@ -882,10 +882,6 @@
   order:0;
   flex:0 0 auto;
   width:100%;
-  background:#101317;
-  box-shadow:none;
-  backdrop-filter:none;
-  -webkit-backdrop-filter:none;
 }
 .preview-functional-host .display-stage.is-presenting .preview-video-layer,
 .preview-functional-host .display-stage.is-presenting .stage-media{
@@ -898,13 +894,6 @@
   height:auto;
 }
 .preview-functional-host .display-stage.is-presenting::after{display:none}
-.preview-functional-host .display-stage.is-presenting .display-controls{
-  top:0;
-  height:auto;
-  min-height:52px;
-  align-items:flex-start;
-  padding-top:10px;
-}
 
 .preview-functional-app .member-list{
   display:grid;
