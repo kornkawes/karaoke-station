@@ -868,3 +868,99 @@
 @media(prefers-reduced-motion:reduce){
   .preview-functional-app .catalog-suggestions{animation:none}
 }
+
+/* Host: song chrome sits above YouTube instead of covering it. */
+.preview-functional-host .display-stage.is-presenting{
+  display:flex;
+  flex-direction:column;
+}
+.preview-functional-host .display-stage.is-presenting .system-track-bar{
+  position:relative;
+  top:auto;
+  left:auto;
+  right:auto;
+  order:0;
+  flex:0 0 auto;
+  width:100%;
+  background:#101317;
+  box-shadow:none;
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+}
+.preview-functional-host .display-stage.is-presenting .preview-video-layer,
+.preview-functional-host .display-stage.is-presenting .stage-media{
+  position:relative;
+  inset:auto;
+  order:1;
+  flex:1 1 auto;
+  width:100%;
+  min-height:0;
+  height:auto;
+}
+.preview-functional-host .display-stage.is-presenting::after{display:none}
+.preview-functional-host .display-stage.is-presenting .display-controls{
+  top:0;
+  height:auto;
+  min-height:52px;
+  align-items:flex-start;
+  padding-top:10px;
+}
+
+.preview-functional-app .member-list{
+  display:grid;
+  gap:8px;
+  margin:14px 0 16px;
+}
+.preview-functional-app .member-list-label{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  margin:0;
+  color:var(--muted);
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.08em;
+}
+.preview-functional-app .member-empty{
+  margin:0;
+  color:var(--muted);
+  font-size:12px;
+}
+.preview-functional-app .member-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  width:100%;
+  min-height:44px;
+  padding:10px 12px;
+  border:1px solid rgba(245,241,232,.16);
+  border-radius:12px;
+  background:rgba(245,241,232,.04);
+  color:var(--paper);
+  text-align:left;
+}
+.preview-functional-app .member-copy{min-width:0;display:grid;gap:2px}
+.preview-functional-app .member-row strong{font-size:14px}
+.preview-functional-app .member-row span{color:var(--muted);font-size:11px;font-weight:700}
+.preview-functional-app .member-row.is-leader{border-color:rgba(216,251,104,.45)}
+.preview-functional-app .member-row.is-leader span{color:var(--lime)}
+.preview-functional-app .member-row.is-confirming{border-color:rgba(255,98,93,.55);background:rgba(255,98,93,.08)}
+.preview-functional-app .member-kick-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.preview-functional-app .member-kick-yes,
+.preview-functional-app .member-kick-no{
+  min-width:0;
+  height:34px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:4px;
+  border-radius:999px;
+  padding:0 10px;
+  font-size:11px;
+  font-weight:800;
+}
+.preview-functional-app .member-kick-yes svg,
+.preview-functional-app .member-kick-no svg{width:14px;height:14px;flex:0 0 auto}
+.preview-functional-app .member-kick-yes{border:1px solid rgba(216,251,104,.55);background:rgba(216,251,104,.16);color:var(--lime)}
+.preview-functional-app .member-kick-no{border:1px solid rgba(255,98,93,.5);background:rgba(255,98,93,.12);color:#ff8b86}

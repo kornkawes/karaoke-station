@@ -102,6 +102,14 @@ export const hostedApi = {
     request(roomPath(roomId, "/queue/previous"), { method: "POST", token, body: { revision } }),
   complete: (roomId, token, revision) =>
     request(roomPath(roomId, "/queue/complete"), { method: "POST", token, body: { revision } }),
+  leave: (roomId, token) =>
+    request(roomPath(roomId, "/leave"), { method: "POST", token, body: {} }),
+  kickMember: (roomId, token, controllerId) =>
+    request(roomPath(roomId, `/members/${encodeURIComponent(controllerId)}/kick`), {
+      method: "POST",
+      token,
+      body: {}
+    }),
   playNow: (roomId, token, itemId, revision) =>
     request(roomPath(roomId, "/queue/play-now"), {
       method: "POST",
@@ -306,7 +314,8 @@ export function connectRoom({ roomId, token }, onEvent) {
     // for compatibility and prefer the controller-only count when available.
     count: presence.count,
     controllerCount: presence.controllerCount,
-    connectedControllerCount: presence.connectedControllerCount
+    connectedControllerCount: presence.connectedControllerCount,
+    members: Array.isArray(presence.members) ? presence.members : undefined
   }));
   socket.on("room:idle-warning", (payload) => onEvent({
     type: "idle-warning",

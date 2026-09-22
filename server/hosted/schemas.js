@@ -31,3 +31,5 @@ export const socketHandshakeSchema = z.object({
   roomId: roomIdSchema,
   token: tokenSchema
 });
+
+export const controllerIdSchema = z.string().uuid();

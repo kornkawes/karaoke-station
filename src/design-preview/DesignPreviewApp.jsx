@@ -3,6 +3,7 @@ import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, 
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  Check,
   Copy,
   DoorOpen,
   GripVertical,
@@ -22,6 +23,7 @@ import {
   SkipForward,
   Star,
   Trash2,
+  Users,
   Volume2,
   VolumeX,
   Wifi,
@@ -893,6 +895,7 @@ function PreviewController({ session, onRevoked }) {
   const [favorites, setFavorites] = useState(readFavorites);
   const [history, setHistory] = useState([]);
   const [sheet, setSheet] = useState(null);
+  const [kickTarget, setKickTarget] = useState(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
   const [fairSaving, setFairSaving] = useState(false);
@@ -923,6 +926,20 @@ function PreviewController({ session, onRevoked }) {
   useEffect(() => connectRoom(session, (event) => {
     if (event.type === "connection") setConnected(event.connected);
     if (event.type === "room") setRoom((previous) => applyPreviewRoomView(event.view, previous));
+    if (event.type === "presence") {
+      setRoom((previous) => ({
+        ...previous,
+        controllerCount: Number.isFinite(Number(event.connectedControllerCount))
+          ? Number(event.connectedControllerCount)
+          : Number.isFinite(Number(event.controllerCount))
+            ? Number(event.controllerCount)
+            : previous.controllerCount,
+        connectedControllerCount: Number.isFinite(Number(event.connectedControllerCount))
+          ? Number(event.connectedControllerCount)
+          : previous.connectedControllerCount,
+        members: Array.isArray(event.members) ? event.members : previous.members
+      }));
+    }
     if (event.type === "revoked") onRevoked(event.code);
   }), [session, onRevoked]);
 
@@ -1248,6 +1265,31 @@ function PreviewController({ session, onRevoked }) {
     }, 240);
   };
 
+  const onlineMembers = Array.isArray(room.members) ? room.members : [];
+  const isPartyLeader = onlineMembers.some((member) => member.controllerId === session.controllerId && member.isLeader);
+
+  const leaveRoom = async () => {
+    try {
+      await hostedApi.leave(session.roomId, session.token);
+    } catch {
+      // Local leave still has to drop the session even if the network already expired it.
+    }
+    clearSession(CONTROLLER_STORAGE_KEY);
+    onRevoked("member_left");
+  };
+
+  const confirmKick = async () => {
+    if (!kickTarget?.controllerId) return;
+    try {
+      await hostedApi.kickMember(session.roomId, session.token, kickTarget.controllerId);
+      setNotice(`เตะ ${kickTarget.displayName} ออกจากปาร์ตี้แล้ว`);
+    } catch (requestError) {
+      setNotice(requestError.message || "เตะสมาชิกไม่สำเร็จ");
+    } finally {
+      setKickTarget(null);
+    }
+  };
+
   const shareRoom = async () => {
     const url = partyJoinUrlFor(session.roomId, session.joinToken);
     try {
@@ -1423,7 +1465,72 @@ function PreviewController({ session, onRevoked }) {
               </>
             )}
             {sheet === "share" && <><p className="eyebrow">INVITATION · LIVE</p><h2 id="remoteSheetTitle">ชวนเพื่อนเข้าห้อง</h2><p className="sheet-subtitle share-room-id"><RoomIcon size={12} /><span>{session.roomId}</span></p><label className="copy-field">ลิงก์เข้าร่วม<input readOnly value={partyJoinUrlFor(session.roomId, session.joinToken)} /></label><button type="button" className="sheet-action" onClick={shareRoom}><Copy size={16} /> คัดลอก / แชร์ลิงก์</button></>}
-            {sheet === "settings" && <><p className="eyebrow"><RoomIcon size={12} /> SESSION · LIVE</p><h2 id="remoteSheetTitle">ข้อมูลห้อง</h2><p className="sheet-subtitle">คุณเข้าร่วมในชื่อ <strong>{session.displayName}</strong></p><div className="session-info"><span><RoomIcon size={12} /></span><strong>{session.roomId}</strong><span>สถานะ</span><strong>{connected ? "เชื่อมต่อแล้ว" : "กำลังเชื่อมต่อ"}</strong></div><button type="button" className="sheet-danger" onClick={() => { clearSession(CONTROLLER_STORAGE_KEY); onRevoked(); }}>ออกจากห้องนี้</button></>}
+            {sheet === "settings" && (
+              <>
+                <p className="eyebrow"><RoomIcon size={12} /> SESSION · LIVE</p>
+                <h2 id="remoteSheetTitle">ข้อมูลห้อง</h2>
+                <p className="sheet-subtitle">คุณเข้าร่วมในชื่อ <strong>{session.displayName}</strong>{isPartyLeader ? " · หัวหน้าปาร์ตี้" : ""}</p>
+                <div className="session-info">
+                  <span><RoomIcon size={12} /></span>
+                  <strong>{session.roomId}</strong>
+                  <span>สถานะ</span>
+                  <strong>{connected ? "เชื่อมต่อแล้ว" : "กำลังเชื่อมต่อ"}</strong>
+                </div>
+                <div className="member-list" aria-label="สมาชิกที่ออนไลน์">
+                  <p className="member-list-label"><Users size={14} /> สมาชิกออนไลน์</p>
+                  {onlineMembers.length === 0 ? (
+                    <p className="member-empty">ยังไม่มีสมาชิกออนไลน์</p>
+                  ) : onlineMembers.map((member) => {
+                    const isSelf = member.controllerId === session.controllerId;
+                    const confirming = kickTarget?.controllerId === member.controllerId;
+                    return (
+                      <div
+                        key={member.controllerId}
+                        className={`member-row ${member.isLeader ? "is-leader" : ""} ${isSelf ? "is-self" : ""} ${confirming ? "is-confirming" : ""}`}
+                        onPointerDown={(event) => {
+                          if (!isPartyLeader || isSelf || confirming) return;
+                          if (event.target.closest("button")) return;
+                          const pointerId = event.pointerId;
+                          const timer = window.setTimeout(() => setKickTarget(member), 500);
+                          const clear = () => {
+                            window.clearTimeout(timer);
+                            event.currentTarget.releasePointerCapture?.(pointerId);
+                            event.currentTarget.removeEventListener("pointerup", clear);
+                            event.currentTarget.removeEventListener("pointercancel", clear);
+                          };
+                          event.currentTarget.setPointerCapture?.(pointerId);
+                          event.currentTarget.addEventListener("pointerup", clear);
+                          event.currentTarget.addEventListener("pointercancel", clear);
+                        }}
+                        onContextMenu={(event) => {
+                          if (!isPartyLeader || isSelf) return;
+                          event.preventDefault();
+                          setKickTarget(member);
+                        }}
+                      >
+                        <div className="member-copy">
+                          <strong>{member.displayName}</strong>
+                          <span>{member.isLeader ? "หัวหน้าปาร์ตี้" : isSelf ? "คุณ" : "ออนไลน์"}</span>
+                        </div>
+                        {confirming && (
+                          <div className="member-kick-actions">
+                            <button type="button" className="member-kick-yes" onClick={confirmKick} aria-label={`เตะ ${member.displayName} ออก`}>
+                              <Check size={16} />
+                              <span>เตะ</span>
+                            </button>
+                            <button type="button" className="member-kick-no" onClick={() => setKickTarget(null)} aria-label="ยกเลิก">
+                              <X size={16} />
+                              <span>ยกเลิก</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <button type="button" className="sheet-danger" onClick={leaveRoom}>ออกจากห้องนี้</button>
+              </>
+            )}
           </section>
         </div>
       )}
@@ -1454,6 +1561,7 @@ function PreviewPartyView() {
       roomId: result.roomId,
       token: result.token,
       displayName: result.displayName,
+      controllerId: result.controllerId,
       joinToken,
       expiresAt: result.expiresAt,
       searchConfigured: result.searchConfigured
@@ -1489,6 +1597,13 @@ function PreviewPartyView() {
   }, [commitSession, fragment.joinToken, recovery, session]);
 
   const revoked = useCallback((code = "") => {
+    if (/member_kicked|member_left/.test(String(code))) {
+      clearSession(CONTROLLER_STORAGE_KEY);
+      setRecovery(null);
+      setRecovering(false);
+      setSession(null);
+      return;
+    }
     const recoverable = /controller_session_expired|session_expired|controller_auth_required|\b401\b|\b403\b/i.test(String(code));
     const cachedRecovery = readControllerRecovery();
     const sameRoom = !fragment.roomId || !cachedRecovery?.roomId || cachedRecovery.roomId === fragment.roomId;

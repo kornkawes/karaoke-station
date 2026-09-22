@@ -7,11 +7,23 @@ export const emptyPreviewRoom = {
   stationName: "KaraokeStation",
   controllerCount: 0,
   connectedControllerCount: 0,
+  members: [],
   idle: { phase: "active", warning: false, idleSinceAt: null, warningAt: null, closesAt: null },
   settings: { fairQueue: false },
   playback: { playing: true, volume: 75, muted: false },
   restartNonce: 0
 };
+
+function normalizeMembers(members) {
+  if (!Array.isArray(members)) return [];
+  return members
+    .filter((member) => member && typeof member.controllerId === "string" && member.controllerId)
+    .map((member) => ({
+      controllerId: member.controllerId,
+      displayName: String(member.displayName || "สมาชิก").slice(0, 20),
+      isLeader: Boolean(member.isLeader)
+    }));
+}
 
 export function viewToPreviewRoom(view, previous = emptyPreviewRoom) {
   const normalized = normalizeQueue(view);
@@ -34,7 +46,8 @@ export function viewToPreviewRoom(view, previous = emptyPreviewRoom) {
     playback: view?.playback ?? previous.playback ?? { playing: true, volume: 75, muted: false },
     restartNonce: Number.isFinite(Number(view?.restartNonce))
       ? Number(view.restartNonce)
-      : Number(previous.restartNonce || 0)
+      : Number(previous.restartNonce || 0),
+    members: Array.isArray(view?.members) ? normalizeMembers(view.members) : (previous.members || [])
   };
 }
 

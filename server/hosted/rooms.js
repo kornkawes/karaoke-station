@@ -37,6 +37,46 @@ export function safeEqual(valueA, valueB) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/** Online members the phone UI may list. Never includes tokens. */
+export function publicMembers(room, onlineControllerIds = new Set()) {
+  const online = onlineControllerIds instanceof Set
+    ? onlineControllerIds
+    : new Set(Array.isArray(onlineControllerIds) ? onlineControllerIds : []);
+  return [...(room?.controllers?.values?.() ?? [])]
+    .filter((controller) => online.has(controller.controllerId))
+    .map((controller) => ({
+      controllerId: controller.controllerId,
+      displayName: controller.displayName,
+      isLeader: room.partyLeaderId === controller.controllerId
+    }));
+}
+
+/** First remaining joiner becomes leader when the previous leader is gone. */
+export function ensurePartyLeader(room) {
+  if (!room?.controllers) return room;
+  const remaining = [...room.controllers.values()].sort((left, right) => left.joinedAt - right.joinedAt);
+  if (remaining.length === 0) {
+    room.partyLeaderId = null;
+    return room;
+  }
+  if (!remaining.some((controller) => controller.controllerId === room.partyLeaderId)) {
+    room.partyLeaderId = remaining[0].controllerId;
+  }
+  return room;
+}
+
+export function removeControllerById(room, controllerId) {
+  if (!room?.controllers) return undefined;
+  for (const [token, controller] of room.controllers) {
+    if (controller.controllerId === controllerId) {
+      room.controllers.delete(token);
+      ensurePartyLeader(room);
+      return { token, controller };
+    }
+  }
+  return undefined;
+}
+
 export function defaultRoomState() {
   return {
     revision: 0,
@@ -164,6 +204,7 @@ export class MemoryRoomStore {
       connectedControllerCount: 0,
       idleSinceAt: null,
       idleWarningAt: null,
+      partyLeaderId: null,
       controllers: new Map(),
       state: defaultRoomState()
     };
@@ -189,6 +230,15 @@ export class MemoryRoomStore {
       throw new AppError(404, "room_not_found", "ไม่พบห้องนี้ หรือห้องหมดอายุแล้ว");
     }
     return room;
+  }
+
+  removeController(roomId, controllerId) {
+    const room = this.require(roomId);
+    const removed = removeControllerById(room, controllerId);
+    if (!removed) {
+      throw new AppError(404, "member_not_found", "ไม่พบสมาชิกนี้");
+    }
+    return removed;
   }
 
   /** Extends the sliding TTL. Called on any authenticated activity. */
@@ -317,6 +367,7 @@ export class MemoryRoomStore {
     room.hostToken = generateToken();
     room.joinToken = generateToken();
     room.controllers.clear();
+    room.partyLeaderId = null;
     room.connectedControllerCount = 0;
     clearIdleMarkers(room);
     this.touch(roomId);
@@ -336,6 +387,7 @@ export class MemoryRoomStore {
       for (const [token, controller] of room.controllers) {
         if (controller.expiresAt <= now) room.controllers.delete(token);
       }
+      ensurePartyLeader(room);
     }
     return removed;
   }

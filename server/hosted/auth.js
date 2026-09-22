@@ -1,6 +1,6 @@
 import { AppError } from "../lib/errors.js";
 import { randomUuid } from "../lib/compat.js";
-import { CONTROLLER_TTL_MS, generateToken, safeEqual } from "./rooms.js";
+import { CONTROLLER_TTL_MS, ensurePartyLeader, generateToken, safeEqual } from "./rooms.js";
 
 /**
  * Online threat boundary.
@@ -64,17 +64,21 @@ export function joinRoom(room, { joinToken, displayName }, { now = Date.now() } 
     throw new AppError(429, "controller_limit", "มีผู้เข้าร่วมเต็มจำนวนแล้ว");
   }
   const token = generateToken();
+  const controllerId = randomUuid();
   const expiresAt = Math.min(now + CONTROLLER_TTL_MS, room.expiresAt);
   room.controllers.set(token, {
     displayName,
-    controllerId: randomUuid(),
+    controllerId,
     expiresAt,
     joinedAt: now
   });
+  ensurePartyLeader(room);
   return {
     token,
     displayName,
     roomId: room.roomId,
+    controllerId,
+    isLeader: room.partyLeaderId === controllerId,
     expiresAt: new Date(expiresAt).toISOString()
   };
 }

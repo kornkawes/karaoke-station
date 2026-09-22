@@ -32,7 +32,7 @@ import {
 } from "../lib/schemas.js";
 import { parseYouTubeInput, YouTubeService } from "../lib/youtube.js";
 import { defaultFetch } from "../lib/compat.js";
-import { MemoryRoomStore, roomIdleView } from "./rooms.js";
+import { MemoryRoomStore, publicMembers, roomIdleView } from "./rooms.js";
 import {
   requireController,
   requireHost,
@@ -45,7 +45,8 @@ import {
   playbackPatchSchema,
   playNowSchema,
   revisionSchema,
-  roomIdSchema
+  roomIdSchema,
+  controllerIdSchema
 } from "./schemas.js";
 import { trustedProxyHops } from "./config.js";
 
@@ -58,7 +59,7 @@ function data(response, value, status = 200) {
 }
 
 /** Everything a controller or display is allowed to see about a room. */
-export function roomView(room, currentTime = Date.now()) {
+export function roomView(room, currentTime = Date.now(), onlineControllerIds = new Set()) {
   return {
     roomId: room.roomId,
     revision: room.state.revision,
@@ -77,6 +78,7 @@ export function roomView(room, currentTime = Date.now()) {
     // credentials that have not reached their longer TTL yet. It lets the
     // Host distinguish a real connected room from stale browser sessions.
     connectedControllerCount: Number(room.connectedControllerCount) || 0,
+    members: publicMembers(room, onlineControllerIds),
     idle: roomIdleView(room, currentTime)
   };
 }
@@ -138,7 +140,8 @@ export async function createHostedApplication({
   now = () => Date.now(),
   catalog = null,
   catalogSource,
-  catalogTrackVerifier = null
+  catalogTrackVerifier = null,
+  getOnlineControllerIds = () => new Set()
 } = {}) {
   // RENDER_EXTERNAL_URL is injected by the host and is the service's own public URL,
   // so it is a safe last resort: it keeps the deployment same-origin rather than
@@ -169,6 +172,7 @@ export async function createHostedApplication({
   const hostLimiter = new TokenRateLimiter({ limit: 120, windowMs: 60_000, now });
   const resolveRoomLimiter = new TokenRateLimiter({ limit: 30, windowMs: 60_000, now });
   const hostAuth = requireHost(store, { rateLimiter: hostLimiter });
+  const controllerAuth = requireController(store, { rateLimiter: actionLimiter, now });
   const memberAuth = requireMember(store, {
     rateLimiter: actionLimiter,
     hostRateLimiter: hostLimiter,
@@ -297,7 +301,7 @@ export async function createHostedApplication({
     }
   }
 
-  const liveRoomView = (room) => roomView(room, now());
+  const liveRoomView = (room) => roomView(room, now(), getOnlineControllerIds(room.roomId));
 
   function emitRoom(room, eventName = "room:changed") {
     events.emit(eventName, { roomId: room.roomId, view: liveRoomView(room) });
@@ -513,6 +517,52 @@ export async function createHostedApplication({
         connectedControllerCount: Number(room.connectedControllerCount) || 0
       });
       data(response, { ...session, searchConfigured: Boolean(apiKey) }, 201);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/v1/rooms/:roomId/leave", controllerAuth, (request, response, next) => {
+    try {
+      const roomId = request.room.roomId;
+      const removed = store.removeController(roomId, request.actor.controllerId);
+      events.emit("member:left", { roomId, controllerId: request.actor.controllerId, token: removed.token });
+      events.emit("room:presence", {
+        roomId,
+        controllerCount: request.room.controllers.size,
+        connectedControllerCount: Number(request.room.connectedControllerCount) || 0
+      });
+      const remaining = store.get(roomId);
+      if (remaining) emitRoom(remaining);
+      data(response, { left: true, roomId });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/v1/rooms/:roomId/members/:controllerId/kick", controllerAuth, (request, response, next) => {
+    try {
+      const room = request.room;
+      if (room.partyLeaderId !== request.actor.controllerId) {
+        throw new AppError(403, "kick_forbidden", "เฉพาะหัวหน้าปาร์ตี้ที่เตะสมาชิกได้");
+      }
+      const targetId = controllerIdSchema.parse(request.params.controllerId);
+      if (targetId === request.actor.controllerId) {
+        throw new AppError(400, "kick_self_forbidden", "เตะตัวเองไม่ได้");
+      }
+      const removed = store.removeController(room.roomId, targetId);
+      events.emit("member:kicked", {
+        roomId: room.roomId,
+        controllerId: targetId,
+        token: removed.token
+      });
+      events.emit("room:presence", {
+        roomId: room.roomId,
+        controllerCount: room.controllers.size,
+        connectedControllerCount: Number(room.connectedControllerCount) || 0
+      });
+      emitRoom(store.require(room.roomId));
+      data(response, { kicked: true, controllerId: targetId });
     } catch (error) {
       next(error);
     }

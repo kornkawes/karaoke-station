@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Server as SocketServer } from "socket.io";
 import { createHostedApplication } from "./app.js";
 import { authenticateController, authenticateHost } from "./auth.js";
+import { publicMembers } from "./rooms.js";
 import { socketHandshakeSchema } from "./schemas.js";
 import { createSocketAdmission, socketSecurityConfig } from "./socket-security.js";
 
@@ -18,9 +19,39 @@ const MAX_SOCKETS_PER_ROOM = 60;
 const SWEEP_INTERVAL_MS = 60_000;
 const IDLE_CHECK_INTERVAL_MS = 1_000;
 
+const onlineControllerCounts = new Map();
+
+function onlineControllerKey(roomId, controllerId) {
+  return `${roomId}\n${controllerId}`;
+}
+
+function addOnlineController(roomId, controllerId) {
+  if (!controllerId) return;
+  const key = onlineControllerKey(roomId, controllerId);
+  onlineControllerCounts.set(key, (onlineControllerCounts.get(key) || 0) + 1);
+}
+
+function removeOnlineController(roomId, controllerId) {
+  if (!controllerId) return;
+  const key = onlineControllerKey(roomId, controllerId);
+  const next = (onlineControllerCounts.get(key) || 0) - 1;
+  if (next <= 0) onlineControllerCounts.delete(key);
+  else onlineControllerCounts.set(key, next);
+}
+
+function onlineControllerIdsFor(roomId) {
+  const ids = new Set();
+  const prefix = `${roomId}\n`;
+  for (const [key, count] of onlineControllerCounts) {
+    if (count > 0 && key.startsWith(prefix)) ids.add(key.slice(prefix.length));
+  }
+  return ids;
+}
+
 const runtime = await createHostedApplication({
   env: process.env,
-  distDir
+  distDir,
+  getOnlineControllerIds: onlineControllerIdsFor
 });
 
 const server = createServer(runtime.app);
@@ -114,6 +145,7 @@ io.use((socket, next) => {
     socket.data.token = handshake.token;
     socket.data.role = actor.role;
     socket.data.displayName = actor.displayName ?? "Host";
+    socket.data.controllerId = actor.controllerId || null;
     socket.data.expiresAt = actor.role === "host" ? room.expiresAt : actor.expiresAt;
     next();
   } catch (error) {
@@ -128,6 +160,7 @@ io.on("connection", (socket) => {
   increment(socketsPerToken, token);
   if (socket.data.role === "controller") {
     increment(controllerSocketsPerRoom, roomId);
+    addOnlineController(roomId, socket.data.controllerId);
     syncConnectedControllerCount(roomId);
   }
   socket.join(roomChannel(roomId));
@@ -157,6 +190,7 @@ io.on("connection", (socket) => {
     decrement(socketsPerToken, token);
     if (socket.data.role === "controller") {
       decrement(controllerSocketsPerRoom, roomId);
+      removeOnlineController(roomId, socket.data.controllerId);
       // Keep the store authoritative immediately; the broadcast remains
       // debounced to avoid a presence storm during reconnects.
       syncConnectedControllerCount(roomId);
@@ -172,14 +206,16 @@ function emitPresence(roomId) {
   presenceTimers.set(roomId, setTimeout(() => {
     presenceTimers.delete(roomId);
     const count = io.sockets.adapter.rooms.get(roomChannel(roomId))?.size ?? 0;
-    const controllerCount = runtime.store.get(roomId)?.controllers?.size ?? 0;
+    const room = runtime.store.get(roomId);
+    const controllerCount = room?.controllers?.size ?? 0;
     const connectedControllerCount = controllerSocketCount(roomId);
     runtime.store.setConnectedControllerCount(roomId, connectedControllerCount);
     io.to(roomChannel(roomId)).emit("room:presence", {
       roomId,
       count,
       controllerCount,
-      connectedControllerCount
+      connectedControllerCount,
+      members: room ? publicMembers(room, onlineControllerIdsFor(roomId)) : []
     });
   }, 500));
 }
@@ -201,7 +237,8 @@ runtime.events.on("room:presence", ({ roomId, controllerCount, connectedControll
     roomId,
     count,
     controllerCount: Number(controllerCount) || 0,
-    connectedControllerCount: liveControllers
+    connectedControllerCount: liveControllers,
+    members: publicMembers(runtime.store.get(roomId), onlineControllerIdsFor(roomId))
   });
 });
 
@@ -220,6 +257,23 @@ async function disconnectRoom(roomId, code) {
     socket.disconnect(true);
   }
 }
+
+async function disconnectToken(roomId, token, code) {
+  const sockets = await io.in(roomChannel(roomId)).fetchSockets();
+  for (const socket of sockets) {
+    if (socket.data.token !== token) continue;
+    socket.emit("room:revoked", { roomId, code });
+    socket.disconnect(true);
+  }
+}
+
+runtime.events.on("member:kicked", ({ roomId, token }) => {
+  void disconnectToken(roomId, token, "member_kicked");
+});
+
+runtime.events.on("member:left", ({ roomId, token }) => {
+  void disconnectToken(roomId, token, "member_left");
+});
 
 runtime.events.on("room:closed", ({ roomId, reason }) => {
   void disconnectRoom(roomId, reason === "idle_timeout" ? "room_idle_timeout" : "room_closed");

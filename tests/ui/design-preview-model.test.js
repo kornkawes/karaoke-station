@@ -86,6 +86,22 @@ describe("design preview hosted adapter", () => {
     expect(joined.idle.phase).toBe("idle");
   });
 
+  it("keeps online members from a hosted snapshot", () => {
+    const next = viewToPreviewRoom({
+      revision: 4,
+      members: [
+        { controllerId: "11111111-1111-1111-1111-111111111111", displayName: "นัท", isLeader: true },
+        { controllerId: "22222222-2222-2222-2222-222222222222", displayName: "โบ๊ท", isLeader: false }
+      ],
+      queue: [],
+      current: null
+    });
+    expect(next.members).toEqual([
+      { controllerId: "11111111-1111-1111-1111-111111111111", displayName: "นัท", isLeader: true },
+      { controllerId: "22222222-2222-2222-2222-222222222222", displayName: "โบ๊ท", isLeader: false }
+    ]);
+  });
+
   it("ignores stale room snapshots after a newer realtime revision", () => {
     const current = viewToPreviewRoom({
       revision: 2,
