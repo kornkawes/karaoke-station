@@ -881,6 +881,111 @@ function SortableQueueItem({ track, index, busy, onPlayNow, onRemove }) {
   );
 }
 
+const MEMBER_SWIPE_DISTANCE = 164;
+const MEMBER_SWIPE_TRIGGER = 52;
+
+function OnlineMemberRow({ member, isSelf, canKick, revealed, onReveal, onCancel, onKick }) {
+  const [dragOffset, setDragOffset] = useState(0);
+  const gestureRef = useRef(null);
+
+  const resetGesture = (event) => {
+    const gesture = gestureRef.current;
+    if (gesture && event?.pointerId === gesture.pointerId) {
+      event.currentTarget.releasePointerCapture?.(gesture.pointerId);
+    }
+    gestureRef.current = null;
+    setDragOffset(0);
+  };
+
+  const onPointerDown = (event) => {
+    if (!canKick || isSelf || event.target.closest("button")) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    gestureRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      cancelled: false
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const onPointerMove = (event) => {
+    const gesture = gestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId || gesture.cancelled) return;
+    const deltaX = event.clientX - gesture.startX;
+    const deltaY = event.clientY - gesture.startY;
+    if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 10) {
+      gesture.cancelled = true;
+      setDragOffset(0);
+      return;
+    }
+    const base = revealed ? -MEMBER_SWIPE_DISTANCE : 0;
+    const next = Math.max(-MEMBER_SWIPE_DISTANCE, Math.min(0, base + deltaX));
+    if (next !== base) {
+      event.preventDefault();
+      setDragOffset(next - base);
+    }
+  };
+
+  const onPointerUp = (event) => {
+    const gesture = gestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - gesture.startX;
+    const cancelled = gesture.cancelled;
+    resetGesture(event);
+    if (cancelled) return;
+    if (revealed && deltaX >= MEMBER_SWIPE_TRIGGER) {
+      onCancel();
+    } else if (!revealed && deltaX <= -MEMBER_SWIPE_TRIGGER) {
+      onReveal();
+    }
+  };
+
+  const onKeyDown = (event) => {
+    if (!canKick || isSelf || revealed) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onReveal();
+    }
+  };
+
+  const transform = revealed
+    ? `translateX(${-(MEMBER_SWIPE_DISTANCE - dragOffset)}px)`
+    : `translateX(${dragOffset}px)`;
+
+  return (
+    <div className="member-swipe-shell">
+      <div className={`member-swipe-actions${revealed ? " is-visible" : ""}`} aria-hidden={!revealed}>
+        <button type="button" className="member-kick-yes" onClick={onKick} aria-label={`เตะ ${member.displayName} ออก`}>
+          <Check size={16} />
+          <span>เตะ</span>
+        </button>
+        <button type="button" className="member-kick-no" onClick={onCancel} aria-label="ยกเลิก">
+          <X size={16} />
+          <span>ยกเลิก</span>
+        </button>
+      </div>
+      <div
+        className={`member-row ${member.isLeader ? "is-leader" : ""} ${isSelf ? "is-self" : ""} ${revealed ? "is-confirming" : ""} ${dragOffset ? "is-dragging" : ""}`.trim()}
+        style={{ transform }}
+        role={canKick && !isSelf ? "button" : undefined}
+        tabIndex={canKick && !isSelf ? 0 : undefined}
+        aria-expanded={canKick && !isSelf ? revealed : undefined}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={resetGesture}
+        onKeyDown={onKeyDown}
+      >
+        <div className="member-copy">
+          <strong>{member.displayName}</strong>
+          <span>{member.isLeader ? "หัวหน้าปาร์ตี้" : isSelf ? "คุณ" : "ออนไลน์"}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PreviewController({ session, onRevoked }) {
   const [tab, setTab] = useState("search");
   const [filter, setFilter] = useState("all");
@@ -1484,47 +1589,16 @@ function PreviewController({ session, onRevoked }) {
                     const isSelf = member.controllerId === session.controllerId;
                     const confirming = kickTarget?.controllerId === member.controllerId;
                     return (
-                      <div
+                      <OnlineMemberRow
                         key={member.controllerId}
-                        className={`member-row ${member.isLeader ? "is-leader" : ""} ${isSelf ? "is-self" : ""} ${confirming ? "is-confirming" : ""}`}
-                        onPointerDown={(event) => {
-                          if (!isPartyLeader || isSelf || confirming) return;
-                          if (event.target.closest("button")) return;
-                          const pointerId = event.pointerId;
-                          const timer = window.setTimeout(() => setKickTarget(member), 500);
-                          const clear = () => {
-                            window.clearTimeout(timer);
-                            event.currentTarget.releasePointerCapture?.(pointerId);
-                            event.currentTarget.removeEventListener("pointerup", clear);
-                            event.currentTarget.removeEventListener("pointercancel", clear);
-                          };
-                          event.currentTarget.setPointerCapture?.(pointerId);
-                          event.currentTarget.addEventListener("pointerup", clear);
-                          event.currentTarget.addEventListener("pointercancel", clear);
-                        }}
-                        onContextMenu={(event) => {
-                          if (!isPartyLeader || isSelf) return;
-                          event.preventDefault();
-                          setKickTarget(member);
-                        }}
-                      >
-                        <div className="member-copy">
-                          <strong>{member.displayName}</strong>
-                          <span>{member.isLeader ? "หัวหน้าปาร์ตี้" : isSelf ? "คุณ" : "ออนไลน์"}</span>
-                        </div>
-                        {confirming && (
-                          <div className="member-kick-actions">
-                            <button type="button" className="member-kick-yes" onClick={confirmKick} aria-label={`เตะ ${member.displayName} ออก`}>
-                              <Check size={16} />
-                              <span>เตะ</span>
-                            </button>
-                            <button type="button" className="member-kick-no" onClick={() => setKickTarget(null)} aria-label="ยกเลิก">
-                              <X size={16} />
-                              <span>ยกเลิก</span>
-                            </button>
-                          </div>
-                        )}
-                      </div>
+                        member={member}
+                        isSelf={isSelf}
+                        canKick={isPartyLeader}
+                        revealed={confirming}
+                        onReveal={() => setKickTarget(member)}
+                        onCancel={() => setKickTarget(null)}
+                        onKick={confirmKick}
+                      />
                     );
                   })}
                 </div>
