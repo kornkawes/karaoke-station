@@ -1464,7 +1464,7 @@ function PreviewController({ session, onRevoked }) {
                 <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>ทั้งหมด</button>
                 <button type="button" className={filter === "favorites" ? "active" : ""} onClick={() => setFilter("favorites")}>☆ เพลงโปรด ({favorites.length})</button>
               </div>
-              <p className="mobile-tip"><strong>Tips</strong> คุณสามารถกดดาวเพื่อเพิ่มเพลงโปรดไว้ในเครื่องได้</p>
+              <p className="mobile-tip"><strong>Tips</strong> พิมพ์ชื่อเพลง แล้วรอสักครู่ เลือกเพลงจากคลังได้ทันที หากไม่พบเพลงที่ต้องการ ค่อยกดค้นหา</p>
               {phase === "loading" && <div className="empty-state"><LoaderCircle className="spin" size={30} /><span>กำลังค้นหาจาก YouTube…</span></div>}
               {phase === "error" && <div className="empty-state"><b>ค้นหาไม่สำเร็จ</b><span>ตรวจลิงก์หรือคำค้น แล้วลองใหม่อีกครั้ง</span></div>}
               {filter === "favorites" && displayedResults.length === 0 && <div className="empty-state"><b>ยังไม่มีเพลงโปรด</b><span>กดดาวที่เพลงเพื่อเก็บไว้ในเครื่องนี้</span></div>}
